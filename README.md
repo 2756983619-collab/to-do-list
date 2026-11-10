@@ -1,5 +1,10 @@
 # To-Do List · 专注清单
 
+[![tests](https://github.com/2756983619-collab/to-do-list/actions/workflows/tests.yml/badge.svg)](https://github.com/2756983619-collab/to-do-list/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey)](#)
+
 一个 Windows 桌面小工具：左边管理今天的任务，右边盯住那些一打开就会让你分心的网站和软件。
 开着监控时，一旦检测到你打开了它们，就会弹窗提醒你"回到工作"。
 
