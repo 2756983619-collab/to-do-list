@@ -97,9 +97,9 @@
 
 ## 分发给别人
 
-1. **发安装包**：把 Releases 里的 `ToDoList-Setup-1.1.0.exe`（约 10 MB）发过去，对方双击 → 下一步即可。
+1. **发安装包**：把 Releases 里的 `ToDoList-Setup-v1.2.0.exe`（约 10 MB）发过去，对方双击 → 下一步即可。
    安装时可以勾选"创建桌面快捷方式"和"开机自动启动"（不启动就不会监控，所以建议勾上）。
-2. **发便携版**：发 `ToDoList-portable-1.1.0.zip`（约 12 MB），对方解压到任意可写目录，双击里面的 `ToDoList.exe`。
+2. **发便携版**：发 `ToDoList-portable-v1.2.0.zip`（约 12 MB），对方解压到任意可写目录，双击里面的 `ToDoList-v1.2.0.exe`。
 
 需要提前告诉对方两件事：
 
@@ -108,7 +108,7 @@
 - **数据不会被卸载**：卸载安装包只删除程序目录，`%APPDATA%\ToDoList` 里的任务数据会保留。
   想彻底清干净，手动删掉那个文件夹。
 
-> 只发 `ToDoList.exe` 这一个文件是跑不起来的，它依赖同级的 `_internal` 文件夹——发整个文件夹或压缩包。
+> 只发 `ToDoList-v1.2.0.exe` 这一个文件是跑不起来的，它依赖同级的 `_internal` 文件夹——发整个文件夹或压缩包。
 
 ## 目录结构
 
@@ -116,10 +116,10 @@
 to-do-list/
 ├─ .github/workflows/tests.yml      GitHub Actions：Windows / macOS 上跑单元测试
 ├─ dist/                            构建产物（不进仓库，见 .gitignore）
-│  ├─ ToDoList/ToDoList.exe         onedir 可执行目录
-│  ├─ installer/                   ToDoList-Setup-1.1.0.exe 安装包
-│  ├─ portable/ToDoList/           便携版目录（含 portable.txt）
-│  └─ ToDoList-portable-1.1.0.zip  便携版压缩包
+│  ├─ ToDoList-v1.2.0/             onedir 可执行目录（内含 ToDoList-v1.2.0.exe）
+│  ├─ installer/                   ToDoList-Setup-v1.2.0.exe 安装包
+│  ├─ portable/ToDoList-v1.2.0/    便携版目录（含 portable.txt）
+│  └─ ToDoList-portable-v1.2.0.zip  便携版压缩包
 ├─ installer/ToDoList.iss          Inno Setup 打包脚本
 ├─ app.py                          程序入口：装配窗口、线程、提醒、数据目录
 ├─ store.py                        数据读写（JSON + 变更通知）
@@ -130,7 +130,7 @@ to-do-list/
 ├─ theme.py                        白色圆角主题、手绘控件（卡片 / 按钮 / 输入框 / 勾选框 / 开关）
 ├─ assets/icon.png、icon.ico       图标（png 给界面，ico 给 exe 和安装包）
 ├─ screenshots/                    界面截图
-├─ tests/test_core.py              核心逻辑单元测试（15 个用例）
+├─ tests/                          单元测试：test_core.py（核心逻辑）、test_gui.py（桌面集成，需 TODO_LIST_GUI_TESTS=1）、test_macos.py / test_native_overlay.py（Mac 专用，Windows 上跳过）
 ├─ run.bat                         从源码启动（pythonw，无黑框）
 ├─ LICENSE                         MIT
 └─ data/todo.json                  从源码运行时的数据文件
@@ -187,6 +187,13 @@ Windows 仍保留原有安装、便携数据路径和监控接口。CI 在 Windo
 python -m unittest discover -s tests -t .
 ```
 
+默认会跳过需要桌面会话的用例；想在 Windows 上连界面一起测：
+
+```
+set TODO_LIST_GUI_TESTS=1
+python -m unittest discover -s tests -t .
+```
+
 ## 重新打包
 
 ```
@@ -194,8 +201,12 @@ python -m PyInstaller --noconfirm --clean ToDoList.spec
 "C:\Users\<你>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\ToDoList.iss
 ```
 
-第一条生成 `dist\ToDoList\`（onedir，比 onefile 稳，不需要解压临时目录）；
-第二条把它压成安装包。便携版压缩包就是 `dist\ToDoList\` 加一个 `portable.txt` 再压成 zip。
+第一条生成 `dist\ToDoList-v1.2.0\`（onedir，比 onefile 稳，不需要解压临时目录）；
+第二条把它压成安装包 `dist\installer\ToDoList-Setup-v1.2.0.exe`。
+
+便携版就是 `dist\ToDoList-v1.2.0\` 复制一份、加一个 `portable.txt`（再附一份使用说明），然后压成 `ToDoList-portable-v1.2.0.zip`。
+
+版本号写在三处，发新版时一起改：`app.py` 的 `APP_VERSION`、`ToDoList.spec` 顶部的 `APP_VERSION`、`installer\ToDoList.iss` 的 `AppVersion`。exe（`ToDoList-v1.2.0.exe`）、安装包、压缩包的名字都跟着它走；安装包升级时会把 `{app}` 里的旧 exe 删掉，不会残留。
 
 ## 已知限制
 

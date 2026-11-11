@@ -1,4 +1,4 @@
-"""Opt-in desktop integration check: TODO_LIST_GUI_TESTS=1 python -m unittest tests.test_gui -v."""
+﻿"""Opt-in desktop integration check: TODO_LIST_GUI_TESTS=1 python -m unittest tests.test_gui -v."""
 import os
 import socket
 import tempfile
@@ -103,6 +103,27 @@ class DesktopTests(unittest.TestCase):
                 self.assertIsNotNone(instance.float._drag_offset)
                 instance.float._end_drag()
                 self.assertTrue(float(instance.float.attributes('-alpha')) > 0.3)
+                self.assertEqual(errors, [])
+            finally:
+                instance.quit()
+                instance.worker.join(timeout=2)
+
+    def test_float_switch_label_follows_settings(self):
+        """开关是绿的、文字却写着"监控已关闭"这种不一致，之前真的出现过。"""
+        errors = []
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'TODO_LIST_DATA': os.path.join(folder, 'todo.json')}), patch.object(tk.Tk, 'report_callback_exception', lambda self, kind, value, trace: errors.append(str(value))):
+            instance = app.App()
+            try:
+                instance.store.set_setting('monitor', True)
+                instance.root.update()
+                self.assertTrue(instance.float.switch._value)
+                self.assertEqual(instance.float.switch_state.cget('text'), '监控已开启')
+                self.assertEqual(instance.float.interval_label.cget('text'), '每 90 秒')
+                instance.store.set_setting('monitor', False)
+                instance.root.update()
+                self.assertFalse(instance.float.switch._value)
+                self.assertEqual(instance.float.switch_state.cget('text'), '监控已关闭')
+                self.assertEqual(instance.float.interval_label.cget('text'), '')
                 self.assertEqual(errors, [])
             finally:
                 instance.quit()

@@ -1,4 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
+# 版本号只改这一行：exe 名与输出目录都跟着它走
+APP_VERSION = '1.2.0'
+EXE_NAME = f'ToDoList-v{APP_VERSION}'
 
 
 a = Analysis(
@@ -21,7 +24,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='ToDoList',
+    name=EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -41,5 +44,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='ToDoList',
+    name=EXE_NAME,
 )

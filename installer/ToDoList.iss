@@ -3,10 +3,10 @@
 
 #define AppName "To-Do List 专注清单"
 #define AppNameShort "To-Do List"
-#define AppVersion "1.1.0"
-#define AppExe "ToDoList.exe"
+#define AppVersion "1.2.0"
+#define AppExe "ToDoList-v" + AppVersion + ".exe"
 #define AppPublisher "To-Do List"
-#define SourceDir "..\dist\ToDoList"
+#define SourceDir "..\dist\ToDoList-v" + AppVersion
 
 [Setup]
 AppId={{7A3F2C64-9E1B-4D58-8C2A-5B6D0E4F1A93}
@@ -19,7 +19,7 @@ DefaultGroupName={#AppNameShort}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist\installer
-OutputBaseFilename=ToDoList-Setup-{#AppVersion}
+OutputBaseFilename=ToDoList-Setup-v{#AppVersion}
 SetupIconFile=..\assets\icon.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
@@ -44,6 +44,11 @@ Name: "autostart"; Description: "开机自动启动（不启动时不会监控�
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; 升级时清掉旧版本的主程序（旧版叫 ToDoList.exe，新版带版本号）
+Type: files; Name: "{app}\ToDoList.exe"
+Type: files; Name: "{app}\ToDoList-v*.exe"
 
 [Icons]
 Name: "{autoprograms}\{#AppNameShort}"; Filename: "{app}\{#AppExe}"; Comment: "专注清单：任务管理 + 干扰源监控"

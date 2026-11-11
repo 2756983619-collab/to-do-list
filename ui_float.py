@@ -251,6 +251,12 @@ class FloatWindow(tk.Toplevel):
             self.switch.set_value(enabled, animate=True)
         except tk.TclError:
             pass
+        # 直接按设置刷新文字，不依赖 app.refresh_status 的签名缓存（它可能提前 return，
+        # 导致开关是绿的、文字却还停在"监控已关闭"）
+        self.switch_state.configure(
+            text="监控已开启" if enabled else "监控已关闭",
+            fg=T.GREEN if enabled else T.MUTED,
+        )
         interval = int(self.store.settings.get("interval", 90))
         self.interval_label.configure(text=f"每 {interval} 秒" if enabled else "")
         self.refresh_status()

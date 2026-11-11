@@ -8,7 +8,6 @@ import shutil
 import socket
 import sys
 import subprocess
-import tempfile
 import threading
 import time
 import tkinter as tk
@@ -29,15 +28,21 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "ToDoList"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 
 def _writable(folder: str) -> bool:
-    """真正试写一次：有些目录存在但不可写（受控文件夹、只读安装位置等）。"""
+    """真正试写一次：有些目录存在但不可写（受控文件夹、只读安装位置等）。
+
+    这里故意不用 tempfile：打包成 exe 后 tempfile 在个别机器上会陷在
+    _mkstemp_inner 的重试循环里出不来（表现为启动即卡死、CPU 100%）。
+    """
+    probe = os.path.join(folder, f".write-probe-{os.getpid()}")
     try:
         os.makedirs(folder, exist_ok=True)
-        with tempfile.TemporaryFile(dir=folder) as handle:
+        with open(probe, "wb") as handle:
             handle.write(b"ok")
+        os.remove(probe)
         return True
     except OSError:
         return False
