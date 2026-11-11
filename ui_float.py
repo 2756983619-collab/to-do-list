@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 
 import theme as T
@@ -19,11 +20,7 @@ class FloatWindow(tk.Toplevel):
         self.title("专注清单 · 悬浮窗")
         self.overrideredirect(True)
         self.attributes("-topmost", True)
-        self.configure(bg=T.KEY)
-        try:
-            self.attributes("-transparentcolor", T.KEY)
-        except tk.TclError:
-            pass
+        T.configure_overlay(self)
         self._drag_offset = None
         self._pos = (self.winfo_screenwidth() - WIDTH - 40, 120)
         self.withdraw()
@@ -112,15 +109,18 @@ class FloatWindow(tk.Toplevel):
         self.menu.add_command(label="隐藏悬浮窗", command=self.app.hide_float)
         self.menu.add_separator()
         self.menu.add_command(label="退出程序", command=self.app.quit)
-        for widget in (self.shell, self.inner, self.list_holder,
-                       self.scroller.canvas, self.scroller.inner, self.footer):
-            widget.bind("<Button-3>", self._popup_menu)
+        # Toplevel bindings cover every child, including task labels and drag handles.
+        self.bind("<Button-3>", self._popup_menu)
+        if sys.platform == "darwin":
+            self.bind("<Button-2>", self._popup_menu)
+            self.bind("<Control-Button-1>", self._popup_menu)
 
     def _popup_menu(self, event):
         try:
             self.menu.tk_popup(event.x_root, event.y_root)
         finally:
             self.menu.grab_release()
+        return "break"
 
     # ------------------------------------------------------------ tasks
     def refresh_rows(self) -> None:
