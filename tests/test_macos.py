@@ -108,8 +108,15 @@ class DataLocationTests(unittest.TestCase):
                 app._migrate_legacy_data()
                 self.assertEqual(dest.read_text(), 'new')
 
-    def test_windows_location_retained(self):
-        with patch.object(app.sys, 'platform', 'win32'), patch.dict(os.environ, {'APPDATA': '/roaming'}, clear=True), patch.object(app.os.path, 'exists', return_value=False), patch.object(app, '_writable', return_value=True):
+    def test_windows_location_follows_install_dir(self):
+        with patch.object(app.sys, 'platform', 'win32'), patch.dict(os.environ, {'APPDATA': '/roaming'}, clear=True), \
+                patch.object(app.os.path, 'exists', return_value=False), patch.object(app, '_writable', return_value=True):
+            self.assertEqual(app._data_dir(), os.path.join(app.BASE_DIR, 'data'))
+
+    def test_windows_falls_back_when_install_dir_not_writable(self):
+        with patch.object(app.sys, 'platform', 'win32'), patch.dict(os.environ, {'APPDATA': '/roaming'}, clear=True), \
+                patch.object(app.os.path, 'exists', return_value=False), \
+                patch.object(app, '_writable', side_effect=lambda folder: folder != os.path.join(app.BASE_DIR, 'data')):
             self.assertEqual(app._data_dir(), os.path.join('/roaming', 'ToDoList'))
 
 

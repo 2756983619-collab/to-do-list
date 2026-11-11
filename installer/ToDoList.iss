@@ -3,7 +3,7 @@
 
 #define AppName "To-Do List 专注清单"
 #define AppNameShort "To-Do List"
-#define AppVersion "1.3.2"
+#define AppVersion "1.3.3"
 #define AppExe "ToDoList-v" + AppVersion + ".exe"
 #define AppPublisher "To-Do List"
 #define SourceDir "..\dist\ToDoList-v" + AppVersion
@@ -62,5 +62,6 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\{#AppExe}"; Description: "立即启动 {#AppNameShort}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; 只删程序目录，%APPDATA%\ToDoList 里的任务数据保留
+; 数据在 {app}\data 里：卸载只删程序文件，data 目录和里面的 todo.json 保留下来
+Type: dirifempty; Name: "{app}\data"
 Type: dirifempty; Name: "{app}"

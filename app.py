@@ -33,7 +33,7 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "ToDoList"
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.3.3"
 
 
 def _writable(folder: str) -> bool:
@@ -54,9 +54,11 @@ def _writable(folder: str) -> bool:
 
 
 def _data_dir() -> str:
-    """Mac 默认 Application Support；Windows 默认 APPDATA，支持便携目录。
+    """数据放在程序自己所在的目录下（`data\\`），跟着安装位置走。
 
-    逐个候选目录试写，第一个能写的就用——避免装到只读位置时任务悄悄存不上。
+    这样用户把程序装到 D 盘，任务数据也在 D 盘，不会跑到 C 盘再占一份空间。
+    只有程序装到了不可写的位置（例如 Program Files）时，才退回用户目录，
+    避免出现"任务存不上"的静默失败。
     """
     override = os.environ.get("TODO_LIST_DATA")
     if override:
@@ -66,9 +68,9 @@ def _data_dir() -> str:
         if not _writable(folder):
             raise OSError(f"数据目录不可写：{folder}")
         return folder
-    portable_marker = os.path.join(BASE_DIR, "portable.txt")
-    if os.path.exists(portable_marker):
-        return os.path.join(BASE_DIR, "data")
+    install_dir = os.path.join(BASE_DIR, "data")
+    if _writable(install_dir):
+        return install_dir
     candidates = []
     roaming = os.environ.get("APPDATA")
     if roaming:
@@ -76,14 +78,13 @@ def _data_dir() -> str:
     local = os.environ.get("LOCALAPPDATA")
     if local:
         candidates.append(os.path.join(local, APP_NAME))
-    candidates.append(os.path.join(BASE_DIR, "data"))
     temp = os.environ.get("TEMP")
     if temp:
         candidates.append(os.path.join(temp, APP_NAME))
     for folder in candidates:
         if _writable(folder):
             return folder
-    return os.path.join(BASE_DIR, "data")
+    return install_dir
 
 
 DATA_DIR = ""
@@ -92,17 +93,33 @@ LOCK_PORT = 47531
 
 
 def _migrate_legacy_data() -> None:
-    """旧版把数据写在 exe 旁边，搬过来，免得用户以为任务丢了。"""
-    legacy = os.path.join(BASE_DIR, "data", "todo.json")
-    if os.path.abspath(legacy) == os.path.abspath(DATA_FILE):
+    """把旧版本留在别处（exe 旁边或 %APPDATA%）的任务搬过来，免得用户以为任务丢了。"""
+    if os.environ.get("TODO_LIST_DATA"):
+        # 显式指定数据文件（测试、脚本）时不去动用户的历史数据
         return
-    if not os.path.exists(legacy) or os.path.exists(DATA_FILE):
+    if os.path.exists(DATA_FILE):
+        return
+    candidates = []
+    for env_name in ("APPDATA", "LOCALAPPDATA"):
+        root = os.environ.get(env_name)
+        if root:
+            candidates.append(os.path.join(root, APP_NAME, "todo.json"))
+    candidates.append(os.path.join(BASE_DIR, "data", "todo.json"))
+
+    target = os.path.abspath(DATA_FILE)
+    newest = None
+    for path in candidates:
+        if os.path.abspath(path) == target or not os.path.exists(path):
+            continue
+        if newest is None or os.path.getmtime(path) > os.path.getmtime(newest):
+            newest = path
+    if newest is None:
         return
     try:
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-        shutil.copy2(legacy, DATA_FILE)
+        shutil.copy2(newest, DATA_FILE)
     except OSError as exc:
-        raise OSError(f"旧数据迁移失败：{legacy} → {DATA_FILE}") from exc
+        raise OSError(f"旧数据迁移失败：{newest} → {DATA_FILE}") from exc
 
 
 class App:

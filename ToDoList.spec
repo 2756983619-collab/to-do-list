@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # 版本号只改这一行：exe 名与输出目录都跟着它走
-APP_VERSION = '1.3.2'
+APP_VERSION = '1.3.3'
 EXE_NAME = f'ToDoList-v{APP_VERSION}'
 
 
