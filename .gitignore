@@ -1,5 +1,6 @@
 # 打包产物：体积大，走 GitHub Releases 而不是提交进仓库
 /dist/
+/installed/
 /build/
 *.spec.bak
 
