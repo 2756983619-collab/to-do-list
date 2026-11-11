@@ -67,6 +67,19 @@ MENU_ACTIONS = {
 
 NOTIFY_SETTINGS_KEY = r"Control Panel\NotifyIconSettings"
 
+# 常见 Win32 错误码，写日志时翻译成人话
+_ERROR_HINTS = {
+    0: "系统没给出错误码",
+    5: "拒绝访问（进程与任务栏的权限级别不一致，或受限账户）",
+    1460: "操作超时",
+}
+
+
+def _describe_winerror(code: int | None) -> str:
+    if code is None:
+        return "未知错误"
+    return _ERROR_HINTS.get(int(code), f"错误码 {code}")
+
 _log_path: str | None = None
 
 
@@ -250,6 +263,8 @@ class TrayIcon:
         self.hwnd = None
         self.last_error = ""
         self._thread: threading.Thread | None = None
+        self._watchdog_thread: threading.Thread | None = None
+        self._stopping = False
         self._icon = None
         self._wndproc = None
         self._class_atom = None
@@ -267,13 +282,17 @@ class TrayIcon:
             return False
         self._thread = threading.Thread(target=self._run, daemon=True, name="tray-icon")
         self._thread.start()
-        for _ in range(60):  # 最多等 1.2 秒，别卡住界面
+        for _ in range(160):  # 最多等 4 秒，别卡住界面（_add_icon 自己会重试 8 次）
             if self.added or not self._thread.is_alive():
                 break
-            self._thread.join(0.02)
+            self._thread.join(0.025)
+        if not self.added:
+            # 先别放弃：交给看门狗在后台继续试，挂上了照样能用
+            self._start_watchdog()
         return self.added
 
     def stop(self) -> None:
+        self._stopping = True
         if not self.available or self.hwnd is None:
             return
         try:
@@ -338,13 +357,14 @@ class TrayIcon:
     def _run(self) -> None:
         try:
             self._user32 = ctypes.windll.user32
-            self._shell32 = ctypes.windll.shell32
+            # use_last_error 才能拿到 Shell_NotifyIcon 真正失败的原因
+            self._shell32 = ctypes.WinDLL("shell32", use_last_error=True)
             self._kernel32 = ctypes.windll.kernel32
             self._declare_prototypes()
             self._create_window()
-            self._add_icon()
-            if not self.added:
+            if not self._add_icon():
                 _log(f"挂载图标失败：{self.last_error}")
+                self._start_watchdog()
             self._message_loop()
         except Exception:
             self.added = False
@@ -428,7 +448,10 @@ class TrayIcon:
         """依次尝试：打包/源码里的 icon.ico → exe 自带图标 → 系统默认图标。"""
         u = self._user32
         size = u.GetSystemMetrics(SM_CXSMICON) or 16
-        for path in candidate_icon_paths(os.path.dirname(os.path.abspath(sys.executable))):
+        paths = [self.icon_path] if self.icon_path else []
+        # 源码运行时 sys.executable 是 python.exe，所以要按本模块所在目录再找一遍
+        paths += candidate_icon_paths(os.path.dirname(os.path.abspath(__file__)))
+        for path in paths:
             if path and os.path.exists(path):
                 handle = u.LoadImageW(None, path, IMAGE_ICON, size, size, LR_LOADFROMFILE)
                 if handle:
@@ -460,7 +483,7 @@ class TrayIcon:
         data.szTip = self.tooltip
         return data
 
-    def _add_icon(self) -> None:
+    def _add_icon(self, attempts: int = 8) -> bool:
         if self._icon is None:
             self._icon = self._load_icon()
         data = self._notify_data()
@@ -468,7 +491,7 @@ class TrayIcon:
         data.uCallbackMessage = WM_TRAY
         data.hIcon = self._icon
         # 开机自启时外壳可能还没准备好，挂载会失败——重试几次
-        for attempt in range(1, 9):
+        for attempt in range(1, max(1, attempts) + 1):
             with self._lock:
                 ok = bool(self._shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(data)))
                 self.added = ok
@@ -476,10 +499,52 @@ class TrayIcon:
                 if attempt > 1:
                     _log(f"第 {attempt} 次挂载图标成功")
                 self.ensure_promoted()
+                return True
+            code = ctypes.get_last_error()
+            self.last_error = (f"Shell_NotifyIcon(NIM_ADD) 失败，GetLastError={code}"
+                               f"（{_describe_winerror(code)}），第 {attempt} 次")
+            if attempt < attempts:
+                time.sleep(0.25)
+        return False
+
+    # ------------------------------------------------------------ 重试与自愈
+    def _start_watchdog(self) -> None:
+        """图标没挂上就每隔几秒重试：开机时外壳没准备好、权限暂时不匹配都能自愈。"""
+        thread = self._watchdog_thread
+        if thread is not None and thread.is_alive():
+            return
+        self._watchdog_thread = threading.Thread(target=self._watchdog, daemon=True,
+                                                 name="tray-watchdog")
+        self._watchdog_thread.start()
+
+    def _watchdog(self) -> None:
+        deadline = time.monotonic() + 600  # 最多试 10 分钟
+        while not self.added and not self._stopping and time.monotonic() < deadline:
+            time.sleep(3.0)
+            if self.added or self._stopping:
                 return
-            code = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
-            self.last_error = f"Shell_NotifyIcon(NIM_ADD) 失败，GetLastError={code}，第 {attempt} 次"
-            time.sleep(0.25)
+            _log(f"重试挂载托盘图标……（上一次：{self.last_error}）")
+            if self._add_icon(attempts=2):
+                _log("托盘图标重新挂上了")
+                return
+        if not self.added and not self._stopping:
+            _log("托盘图标最终没能挂上，已停止自动重试" + (f"（{self.last_error}）"
+                                                     if self.last_error else ""))
+
+    def retry(self) -> None:
+        """手动重挂（悬浮窗右键菜单 / App 调用），成功与否都写日志。"""
+        if not self.available or self._stopping:
+            return
+        threading.Thread(target=self._retry_once, daemon=True,
+                         name="tray-retry").start()
+
+    def _retry_once(self) -> None:
+        if self.hwnd is None:
+            return
+        if self._add_icon(attempts=3):
+            _log("手动重挂托盘图标成功")
+        else:
+            _log(f"手动重挂托盘图标失败：{self.last_error}")
 
     def _message_loop(self) -> None:
         msg = wintypes.MSG()

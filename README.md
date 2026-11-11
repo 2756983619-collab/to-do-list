@@ -82,9 +82,10 @@
 - **左键单击**：打开主界面。
 - **右键**：弹出菜单——打开主界面 / 显示悬浮窗（可勾选）/ 开启监控（可勾选）/ 退出程序。
 - 鼠标悬停在图标上会显示当前状态，例如"To-Do List · 监控中 · 正在检测 6 个窗口"。
-- 图标图案就是程序自己的蓝底对勾（v1.3.1 起图标文件已经打进程序里，不会再显示成系统默认图标）。
+- 图标图案就是程序自己的蓝底对勾（v1.3.2 起图标文件已经打进程序里，不会再显示成系统默认图标）。
 - 启动时程序会自动尝试把图标设为**常驻任务栏**（写 `HKCU\Control Panel\NotifyIconSettings` 里的 `IsPromoted`）。这一步被系统策略拦住时，第一次运行会弹一条通知提醒你去 `^` 里找；也可以手动把图标从 `^` 拖到任务栏，之后就一直显示。
 - 资源管理器（explorer.exe）重启后图标会自动挂回去，不用重启程序。
+- 图标没挂上时会自动后台重试（最多 10 分钟）；这期间主界面的 ✕ 不会把窗口藏得找不着，而是**最小化到任务栏**，悬浮窗右键菜单里也有 **重新挂上托盘图标**。
 - **macOS 没有通知区域**，用 Dock 图标代替：主界面收起后点 Dock 里的程序图标就会回来，退出用 `Cmd + Q`。
 
 ![托盘菜单](screenshots/tray-menu.png)
@@ -92,6 +93,15 @@
 图标被收进 `^` 溢出区时，第一次运行悬浮窗底部会提示一句：
 
 ![悬浮窗里的托盘提示](screenshots/float-tray-hint.png)
+
+#### 图标就是不出现？按这个顺序查
+
+1. 先点任务栏的 `^`（Win11 叫"显示隐藏的图标"），图标通常在里面——拖到任务栏上就常驻。
+2. 看程序数据目录里的 `tray.log`（默认 `%APPDATA%\ToDoList\tray.log`），最后一行会写清楚原因：
+   - `没有权限把图标设为常驻（PermissionError）` → 图标是挂上的，只是被收进 `^` 了，不影响使用。
+   - `Shell_NotifyIcon(NIM_ADD) 失败，GetLastError=5（拒绝访问…）` → **程序所在目录限制了这个进程**，把程序放到普通文件夹里运行（安装版默认在 `%LOCALAPPDATA%\ToDoList`）即可恢复。
+3. 悬浮窗右键 → **重新挂上托盘图标**，会立即重试一次。
+4. 极少数情况是 `explorer.exe` 卡住了，重启资源管理器后图标会自动回来。
 
 ## 界面预览
 
@@ -108,16 +118,16 @@
 - **自动保存**：任何改动立刻写盘，关掉窗口再打开都在。
 - **单实例**：重复双击 exe 不会开出第二个程序，而是把已经在跑的那个窗口叫到前面。
 - **窗口位置记忆**：主窗口大小位置、悬浮窗位置都会记住。
-- **关闭 ≠ 退出**：点主窗口右上角的 ✕ 只是把主界面**收起到后台**，悬浮窗、监控和托盘图标继续跑（悬浮窗底部会提示一句）。想再打开主界面：点托盘图标、点悬浮窗的 `▣`、双击悬浮窗标题，或者**再双击一次 exe**（单实例会把它叫到前面）。
+- **关闭 ≠ 退出**：点主窗口右上角的 ✕ 只是把主界面**收起到后台**，悬浮窗、监控和托盘图标继续跑（悬浮窗底部会提示一句）。想再打开主界面：点托盘图标、点悬浮窗的 `▣`、双击悬浮窗标题，或者**再双击一次 exe**（单实例会把它叫到前面）。托盘图标没能挂上的时候，✕ 会改成**最小化到任务栏**，不会让你找不到程序。
 - **退出程序**：右键**托盘图标** → 退出程序（或者在悬浮窗上右键 → 退出程序）。主窗口的 ✕ 只会收起，不会退出。
 - 如果主界面已经收起，又在悬浮窗上点了 ✕，程序会把主界面叫回来——避免一个窗口都不剩、不知道程序还在不在。托盘菜单里的"显示悬浮窗"不受这个限制，可以只留一个托盘图标在后台跑。
 - **使用系统的窗口/进程查询接口**：不注入、不抓屏、不联网、不上传任何数据。
 
 ## 分发给别人
 
-1. **发安装包**：把 Releases 里的 `ToDoList-Setup-v1.3.1.exe`（约 10 MB）发过去，对方双击 → 下一步即可。
+1. **发安装包**：把 Releases 里的 `ToDoList-Setup-v1.3.2.exe`（约 10 MB）发过去，对方双击 → 下一步即可。
    安装时可以勾选"创建桌面快捷方式"和"开机自动启动"（不启动就不会监控，所以建议勾上）。
-2. **发便携版**：发 `ToDoList-portable-v1.3.1.zip`（约 12 MB），对方解压到任意可写目录，双击里面的 `ToDoList-v1.3.1.exe`。
+2. **发便携版**：发 `ToDoList-portable-v1.3.2.zip`（约 12 MB），对方解压到任意可写目录，双击里面的 `ToDoList-v1.3.2.exe`。
 
 需要提前告诉对方两件事：
 
@@ -126,7 +136,7 @@
 - **数据不会被卸载**：卸载安装包只删除程序目录，`%APPDATA%\ToDoList` 里的任务数据会保留。
   想彻底清干净，手动删掉那个文件夹。
 
-> 只发 `ToDoList-v1.3.1.exe` 这一个文件是跑不起来的，它依赖同级的 `_internal` 文件夹——发整个文件夹或压缩包。
+> 只发 `ToDoList-v1.3.2.exe` 这一个文件是跑不起来的，它依赖同级的 `_internal` 文件夹——发整个文件夹或压缩包。
 
 ## 目录结构
 
@@ -134,10 +144,10 @@
 to-do-list/
 ├─ .github/workflows/tests.yml      GitHub Actions：Windows / macOS 上跑单元测试
 ├─ dist/                            构建产物（不进仓库，见 .gitignore）
-│  ├─ ToDoList-v1.3.1/             onedir 可执行目录（内含 ToDoList-v1.3.1.exe）
-│  ├─ installer/                   ToDoList-Setup-v1.3.1.exe 安装包
-│  ├─ portable/ToDoList-v1.3.1/    便携版目录（含 portable.txt）
-│  └─ ToDoList-portable-v1.3.1.zip  便携版压缩包
+│  ├─ ToDoList-v1.3.2/             onedir 可执行目录（内含 ToDoList-v1.3.2.exe）
+│  ├─ installer/                   ToDoList-Setup-v1.3.2.exe 安装包
+│  ├─ portable/ToDoList-v1.3.2/    便携版目录（含 portable.txt）
+│  └─ ToDoList-portable-v1.3.2.zip  便携版压缩包
 ├─ installer/ToDoList.iss          Inno Setup 打包脚本
 ├─ app.py                          程序入口：装配窗口、线程、提醒、数据目录
 ├─ store.py                        数据读写（JSON + 变更通知）
@@ -221,12 +231,12 @@ python -m PyInstaller --noconfirm --clean ToDoList.spec
 "C:\Users\<你>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\ToDoList.iss
 ```
 
-第一条生成 `dist\ToDoList-v1.3.1\`（onedir，比 onefile 稳，不需要解压临时目录）；
-第二条把它压成安装包 `dist\installer\ToDoList-Setup-v1.3.1.exe`。
+第一条生成 `dist\ToDoList-v1.3.2\`（onedir，比 onefile 稳，不需要解压临时目录）；
+第二条把它压成安装包 `dist\installer\ToDoList-Setup-v1.3.2.exe`。
 
-便携版就是 `dist\ToDoList-v1.3.1\` 复制一份、加一个 `portable.txt`（再附一份使用说明），然后压成 `ToDoList-portable-v1.3.1.zip`。
+便携版就是 `dist\ToDoList-v1.3.2\` 复制一份、加一个 `portable.txt`（再附一份使用说明），然后压成 `ToDoList-portable-v1.3.2.zip`。
 
-版本号写在三处，发新版时一起改：`app.py` 的 `APP_VERSION`、`ToDoList.spec` 顶部的 `APP_VERSION`、`installer\ToDoList.iss` 的 `AppVersion`。exe（`ToDoList-v1.3.1.exe`）、安装包、压缩包的名字都跟着它走；安装包升级时会把 `{app}` 里的旧 exe 删掉，不会残留。
+版本号写在三处，发新版时一起改：`app.py` 的 `APP_VERSION`、`ToDoList.spec` 顶部的 `APP_VERSION`、`installer\ToDoList.iss` 的 `AppVersion`。exe（`ToDoList-v1.3.2.exe`）、安装包、压缩包的名字都跟着它走；安装包升级时会把 `{app}` 里的旧 exe 删掉，不会残留。
 
 ## 已知限制
 

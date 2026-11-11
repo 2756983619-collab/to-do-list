@@ -178,6 +178,7 @@ class FloatWindow(tk.Toplevel):
         self.menu.add_checkbutton(label="钉住悬浮窗（固定最前 · 不可拖动）",
                                   variable=self._pin_var, command=self._on_menu_pin)
         self.menu.add_separator()
+        self.menu.add_command(label="重新挂上托盘图标", command=self.app.retry_tray)
         self.menu.add_command(label="退出程序", command=self.app.quit)
         # Toplevel bindings cover every child, including task labels and drag handles.
         self.bind("<Button-3>", self._popup_menu)

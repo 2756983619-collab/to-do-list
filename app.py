@@ -33,7 +33,7 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "ToDoList"
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 
 
 def _writable(folder: str) -> bool:
@@ -136,19 +136,23 @@ class App:
         self.tray: tray_module.TrayIcon | None = None
         if sys.platform == "win32" and tray_module is not None:
             try:
-                self.tray = tray_module.TrayIcon(
+                tray = tray_module.TrayIcon(
                     tray_module.tray_icon_path(BASE_DIR),
                     "To-Do List · 专注清单",
                     lambda action: self.queue.put(("tray", {"action": action}, time.time())),
                     state_provider=self._tray_state,
                     log_path=os.path.join(DATA_DIR, "tray.log"),
                 )
-                if not self.tray.start():
-                    self.tray = None
-                else:
-                    self._announce_tray()
+                # 注意：start() 返回 False 只表示"这一秒还没挂上"，后台看门狗会继续重试，
+                # 所以对象要留着——退出时才能把图标摘掉，菜单也还能用。
+                tray.start()
+                self.tray = tray
+                self._announce_tray()
             except Exception as exc:  # 托盘失败不能连累主程序
-                tray_module._log(f"未启用托盘：{exc!r}")
+                try:
+                    tray_module._log(f"未启用托盘：{exc!r}")
+                except Exception:
+                    pass
                 self.tray = None
         elif sys.platform == "darwin":
             # macOS 没有通知区域，用 Dock 图标：点 Dock 就把主界面叫回来
@@ -188,12 +192,19 @@ class App:
         """关闭主窗口 ≠ 退出：收起到后台，悬浮窗、监控、托盘图标继续工作。"""
         if not self.store.settings.get("float_visible", True):
             self.store.set_setting("float_visible", True)
-        self.hide_main()
-        hint = ("主界面已收起到后台 · 点 ▣ 或托盘图标可打开" if self.tray
-                else "主界面已收起到后台 · 点 ▣ 可打开")
+        if self.tray_ready():
+            self.hide_main()
+            hint = "主界面已收起到后台 · 点 ▣ 或托盘图标可打开"
+        else:
+            # 没有托盘图标就别把主界面藏得找不到——最小化到任务栏
+            try:
+                self.root.iconify()
+            except tk.TclError:
+                self.hide_main()
+            hint = "主界面已最小化 · 点任务栏按钮可打开（托盘图标没挂上）"
         try:
             self.float.show()
-            self.float.flash_hint(hint)
+            self.float.flash_hint(hint, 6000)
         except tk.TclError:
             pass
 
@@ -340,6 +351,15 @@ class App:
         def hint() -> None:
             if self.store.settings.get("tray_hint_shown"):
                 return
+            if not getattr(tray, "added", False):
+                # 还没挂上：告诉用户"没图标"不是错觉，并给出可操作的办法
+                self._tray_failed_hint = True
+                if self.store.settings.get("float_visible"):
+                    self.float.flash_hint(
+                        "托盘图标没能挂上（系统拒绝）· 关主界面会最小化到任务栏，"
+                        "悬浮窗右键可重挂", 7000)
+                self.store.set_setting("tray_hint_shown", True)
+                return
             if getattr(tray, "promoted", False):
                 # 已经钉在任务栏上了，不用教用户在哪儿找
                 self.store.set_setting("tray_hint_shown", True)
@@ -357,6 +377,28 @@ class App:
 
         # 等一会儿再判断：图标常驻任务栏的设置是异步写的
         self._tray_job = self.root.after(3000, hint)
+
+    def tray_ready(self) -> bool:
+        """托盘图标此刻是否真的挂在通知区里。"""
+        return bool(getattr(self.tray, "added", False))
+
+    def retry_tray(self) -> None:
+        """手动重挂托盘图标（悬浮窗右键菜单用）。"""
+        tray = self.tray
+        if tray is None:
+            self.toast_main("这个系统没有托盘图标（macOS 请用 Dock 图标）")
+            return
+        try:
+            tray.retry()
+        except Exception:
+            pass
+        self.toast_main("已尝试重新挂上托盘图标，详情见 data\\tray.log")
+
+    def toast_main(self, message: str) -> None:
+        try:
+            self.root.toast(message)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------ monitor events
     def _pump(self) -> None:
