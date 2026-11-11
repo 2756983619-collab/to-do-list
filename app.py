@@ -112,6 +112,7 @@ class App:
         self.last_status: dict = {}
         self._geometry_job = None
         self._permission_prompted = False
+        self._permission_settings_error = False
 
         self.root = MainWindow(self)
         self.float = FloatWindow(self)
@@ -134,7 +135,8 @@ class App:
             pass
         self.refresh_status()
         if self.store.settings.get("monitor"):
-            self.root.after(800, self.ensure_accessibility)
+            self.root.after(800, lambda: self.ensure_accessibility()
+                            if self.store.settings.get("monitor") else None)
 
     # ------------------------------------------------------------ windows
     def show_main(self) -> None:
@@ -162,24 +164,33 @@ class App:
 
     # ------------------------------------------------------------ monitor control
     def open_accessibility_settings(self) -> None:
-        subprocess.Popen(["/usr/bin/open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"])
+        if sys.platform != "darwin":
+            return
+        try:
+            subprocess.run(
+                ["/usr/bin/open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
+                check=True, timeout=3, capture_output=True)
+            self._permission_settings_error = False
+        except (OSError, subprocess.SubprocessError):
+            self._permission_settings_error = True
+        self.refresh_status()
+
+    def _handle_accessibility(self, trusted: bool) -> bool:
+        self.last_status["accessibility"] = trusted
+        if trusted:
+            self._permission_prompted = False
+            self._permission_settings_error = False
+        elif not self._permission_prompted:
+            self._permission_prompted = True
+            monitor.request_accessibility()
+        self.refresh_status()
+        return trusted
 
     def ensure_accessibility(self) -> bool:
         if sys.platform != "darwin":
             return True
         try:
-            if monitor.accessibility_trusted():
-                return True
-            if not self._permission_prompted:
-                self._permission_prompted = True
-                monitor.request_accessibility()
-                messagebox.showinfo(
-                    "网站检测需要辅助功能权限",
-                    "请在系统设置 → 隐私与安全性 → 辅助功能中，允许本次启动所用的 Python 或终端。\n"
-                    "授权后会重新检测；若仍提示未授权，请退出并用相同启动方式重新打开。\n"
-                    "软件进程检测和任务清单仍可使用。可从菜单‘监控权限’打开设置。",
-                    parent=self.root)
-            return False
+            return self._handle_accessibility(monitor.accessibility_trusted())
         except RuntimeError as exc:
             messagebox.showerror("Mac 依赖未就绪", str(exc), parent=self.root)
             return False
@@ -203,7 +214,11 @@ class App:
     def refresh_status(self) -> None:
         settings = self.store.settings
         enabled = bool(settings.get("monitor"))
-        if not enabled:
+        if self._permission_settings_error:
+            text, color = "设置打开失败 · 请从“监控权限”重试或手动打开辅助功能", T.AMBER
+        elif self._permission_prompted:
+            text, color = "请在辅助功能中授权 Python 或启动它的终端", T.AMBER
+        elif not enabled:
             text, color = "监控已暂停", T.MUTED
         elif self.last_status.get("error"):
             text, color = "监控采样失败 · 请重新启动监控", T.RED
@@ -247,6 +262,10 @@ class App:
                     break
                 if kind == "status":
                     self.last_status = payload
+                    if (sys.platform == "darwin" and payload.get("enabled")
+                            and self.store.settings.get("monitor")
+                            and isinstance(payload.get("accessibility"), bool)):
+                        self._handle_accessibility(payload["accessibility"])
                 elif kind == "alerts":
                     self._on_alerts(payload, stamp)
                 elif kind == "show":

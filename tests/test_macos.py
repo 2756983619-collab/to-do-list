@@ -114,16 +114,100 @@ class DataLocationTests(unittest.TestCase):
 
 
 class PermissionTests(unittest.TestCase):
-    def test_prompt_once_and_observe_later_authorization(self):
+    def setUp(self):
         instance = app.App.__new__(app.App)
         instance.root = Mock()
+        instance.store = SimpleNamespace(settings={'monitor': True}, last_error=None)
+        instance.last_status = {}
+        instance.snooze_until = 0
         instance._permission_prompted = False
-        with patch.object(app.sys, 'platform', 'darwin'), patch.object(monitor, 'accessibility_trusted', side_effect=[False, False, True]), patch.object(monitor, 'request_accessibility') as request, patch.object(app.messagebox, 'showinfo') as message:
+        instance._permission_settings_error = False
+        instance.queue = queue.Queue()
+        self.instance = instance
+
+    def test_request_once_and_request_again_after_revocation(self):
+        instance = self.instance
+        with patch.object(app.sys, 'platform', 'darwin'), patch.object(monitor, 'accessibility_trusted', side_effect=[False, False, True, False]), patch.object(monitor, 'request_accessibility') as request, patch.object(app.subprocess, 'run') as launch, patch.object(app.messagebox, 'showinfo') as message:
             self.assertFalse(instance.ensure_accessibility())
+            self.assertIn('Python', instance.status_text)
             self.assertFalse(instance.ensure_accessibility())
-            self.assertTrue(instance.ensure_accessibility())
             request.assert_called_once()
-            message.assert_called_once()
+            launch.assert_not_called()
+            self.assertTrue(instance.ensure_accessibility())
+            self.assertFalse(instance._permission_prompted)
+            self.assertFalse(instance.ensure_accessibility())
+            self.assertEqual(request.call_count, 2)
+            launch.assert_not_called()
+            message.assert_not_called()
+
+    def test_already_authorized_and_windows_do_not_open_settings(self):
+        with patch.object(monitor, 'accessibility_trusted', return_value=True) as trusted, patch.object(app.subprocess, 'run') as launch, patch.object(monitor, 'request_accessibility') as request:
+            with patch.object(app.sys, 'platform', 'darwin'):
+                self.assertTrue(self.instance.ensure_accessibility())
+            with patch.object(app.sys, 'platform', 'win32'):
+                self.assertTrue(self.instance.ensure_accessibility())
+                self.instance.open_accessibility_settings()
+            trusted.assert_called_once()
+            launch.assert_not_called()
+            request.assert_not_called()
+
+    def test_open_failure_is_reported_without_automatic_retry(self):
+        for failure in (OSError('unavailable'), app.subprocess.CalledProcessError(1, 'open'), app.subprocess.TimeoutExpired('open', 3)):
+            with self.subTest(failure=type(failure).__name__):
+                self.setUp()
+                instance = self.instance
+                with patch.object(app.sys, 'platform', 'darwin'), patch.object(monitor, 'accessibility_trusted', return_value=False), patch.object(monitor, 'request_accessibility'), patch.object(app.subprocess, 'run', side_effect=[failure, Mock()]) as launch:
+                    self.assertFalse(instance.ensure_accessibility())
+                    launch.assert_not_called()
+                    instance.open_accessibility_settings()
+                    self.assertIn('设置打开失败', instance.status_text)
+                    self.assertFalse(instance.ensure_accessibility())
+                    launch.assert_called_once()
+                    instance.open_accessibility_settings()
+                    self.assertFalse(instance._permission_settings_error)
+                    self.assertIn('Python', instance.status_text)
+                    self.assertEqual(launch.call_count, 2)
+
+    def test_background_revocation_uses_shared_prompt_state(self):
+        instance = self.instance
+        with patch.object(app.sys, 'platform', 'darwin'), patch.object(monitor, 'accessibility_trusted', return_value=False), patch.object(monitor, 'request_accessibility') as request, patch.object(app.subprocess, 'run') as launch:
+            # The explicit startup/enable/picker check and background share one guard.
+            instance.ensure_accessibility()
+            for trusted in (False, False, True, False):
+                instance.queue.put(('status', {'enabled': True, 'accessibility': trusted}, 0))
+                instance._pump()
+            self.assertEqual(request.call_count, 2)
+            launch.assert_not_called()
+
+    def test_paused_monitor_ignores_queued_permission_status(self):
+        instance = self.instance
+        instance.store.settings['monitor'] = False
+        instance.queue.put(('status', {'enabled': True, 'accessibility': False}, 0))
+        with patch.object(app.sys, 'platform', 'darwin'), patch.object(monitor, 'request_accessibility') as request, patch.object(app.subprocess, 'run') as launch:
+            instance._pump()
+            request.assert_not_called()
+            launch.assert_not_called()
+            self.assertEqual(instance.status_text, '监控已暂停')
+
+    def test_settings_command_targets_accessibility(self):
+        with patch.object(app.sys, 'platform', 'darwin'), patch.object(app.subprocess, 'run') as launch:
+            self.instance.open_accessibility_settings()
+            launch.assert_called_once_with(
+                ['/usr/bin/open', 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'],
+                check=True, timeout=3, capture_output=True)
+
+    def test_enable_and_website_picker_share_permission_guard(self):
+        instance = self.instance
+        instance.store.set_setting = Mock(
+            side_effect=lambda key, value: instance.store.settings.update({key: value}))
+        picker = SimpleNamespace(_kind='website', app=instance)
+        with patch.object(app.sys, 'platform', 'darwin'), patch.object(monitor, 'accessibility_trusted', return_value=False), patch.object(monitor, 'request_accessibility') as request, patch.object(app.subprocess, 'run') as launch, patch.object(monitor, 'list_windows') as windows:
+            instance.set_monitor(True)
+            app.MainWindow._scan_available(picker)
+            request.assert_called_once()
+            launch.assert_not_called()
+            windows.assert_not_called()
+            self.assertTrue(instance.store.settings['monitor'])
 
 
 class WorkerTests(unittest.TestCase):
