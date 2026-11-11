@@ -169,4 +169,4 @@ python -m PyInstaller --noconfirm --clean ToDoList.spec
 
 [MIT](LICENSE) © 2026 chenmu
 
-用着顺手就点个 ⭐，有想法或 bug 欢迎开 Issue。
+用着顺手就点个 ⭐，有想法或 bug 欢迎开 Issue，或者发邮件到2756983619@qq.com
