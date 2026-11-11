@@ -16,6 +16,7 @@ from tkinter import messagebox
 import monitor
 import store as store_module
 import theme as T
+import tray as tray_module
 
 from ui_float import FloatWindow
 from ui_main import MainWindow
@@ -28,7 +29,7 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "ToDoList"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 
 def _writable(folder: str) -> bool:
@@ -128,9 +129,24 @@ class App:
                                             self.queue)
         self.worker.start()
 
+        self.tray: tray_module.TrayIcon | None = None
+        if sys.platform == "win32":
+            try:
+                self.tray = tray_module.TrayIcon(
+                    tray_module.tray_icon_path(BASE_DIR),
+                    "To-Do List · 专注清单",
+                    lambda action: self.queue.put(("tray", {"action": action}, time.time())),
+                    state_provider=self._tray_state,
+                )
+                if not self.tray.start():
+                    self.tray = None
+            except Exception as exc:  # 托盘失败不能连累主程序
+                print(f"[tray] 未启用：{exc!r}", file=sys.stderr)
+                self.tray = None
+
         self.store.add_listener(self._on_store_change)
-        self.root.after(150, self._pump)
-        self.root.after(600, self._apply_float_visibility)
+        self._pump_job = self.root.after(150, self._pump)
+        self._visibility_job = self.root.after(600, self._apply_float_visibility)
         self._schedule_geometry_save()
         self.root.deiconify()
         self.root.lift()
@@ -156,13 +172,15 @@ class App:
         self.root.withdraw()
 
     def close_main(self) -> None:
-        """关闭主窗口 ≠ 退出：收起到后台，悬浮窗与监控继续工作。"""
+        """关闭主窗口 ≠ 退出：收起到后台，悬浮窗、监控、托盘图标继续工作。"""
         if not self.store.settings.get("float_visible", True):
             self.store.set_setting("float_visible", True)
         self.hide_main()
+        hint = ("主界面已收起到后台 · 点 ▣ 或托盘图标可打开" if self.tray
+                else "主界面已收起到后台 · 点 ▣ 可打开")
         try:
             self.float.show()
-            self.float.flash_hint("主界面已收起到后台 · 点 ▣ 可打开")
+            self.float.flash_hint(hint)
         except tk.TclError:
             pass
 
@@ -175,7 +193,8 @@ class App:
         except tk.TclError:
             main_visible = True
         if not main_visible:
-            # 主界面已经收起，再藏悬浮窗就一个窗口都不剩了——把主界面叫回来
+            # 主界面已经收起，再藏悬浮窗就一个窗口都不剩了——把主界面叫回来。
+            # 托盘菜单里的"显示悬浮窗"不走这里，可以只留托盘图标在后台跑。
             self.show_main()
             return
         self.store.set_setting("float_visible", False)
@@ -275,6 +294,29 @@ class App:
                 float_window.apply_status(text, color, enabled)
             except tk.TclError:
                 pass
+        tray = getattr(self, "tray", None)
+        if tray is not None:
+            tray.set_tooltip(f"To-Do List · {text}")
+
+    # ------------------------------------------------------------ 托盘图标
+    def _tray_state(self) -> dict:
+        """给托盘菜单算勾选状态（在托盘线程里调用，只读 settings 字典）。"""
+        settings = self.store.settings
+        return {
+            "monitor": bool(settings.get("monitor")),
+            "float_visible": bool(settings.get("float_visible", True)),
+        }
+
+    def _on_tray(self, action: str | None) -> None:
+        if action == "show_main":
+            self.show_main()
+        elif action == "toggle_float":
+            self.store.set_setting("float_visible",
+                                   not bool(self.store.settings.get("float_visible", True)))
+        elif action == "toggle_monitor":
+            self.toggle_monitor()
+        elif action == "quit":
+            self.quit()
 
     # ------------------------------------------------------------ monitor events
     def _pump(self) -> None:
@@ -294,12 +336,14 @@ class App:
                     self._on_alerts(payload, stamp)
                 elif kind == "show":
                     self.show_main()
+                elif kind == "tray":
+                    self._on_tray(payload.get("action"))
                 elif kind == "error":
                     self.last_status = {"error": payload.get("message")}
                     print(f"[monitor] {payload.get('message')}")
         finally:
             self.refresh_status()
-            self.root.after(200, self._pump)
+            self._pump_job = self.root.after(200, self._pump)
 
     def _on_alerts(self, alerts: list, stamp: float) -> None:
         if not alerts:
@@ -352,11 +396,16 @@ class App:
 
     # ------------------------------------------------------------ teardown
     def quit(self) -> None:
-        try:
-            if self._geometry_job is not None:
-                self.root.after_cancel(self._geometry_job)
-        except tk.TclError:
-            pass
+        for job in (getattr(self, "_geometry_job", None), getattr(self, "_pump_job", None),
+                    getattr(self, "_visibility_job", None)):
+            try:
+                if job is not None:
+                    self.root.after_cancel(job)
+            except tk.TclError:
+                pass
+        self._geometry_job = None
+        self._pump_job = None
+        self._visibility_job = None
         try:
             if self.root.state() == "normal":
                 self.store.set_setting("main_geometry", self.root.geometry(), notify=False)
@@ -364,6 +413,12 @@ class App:
             pass
         try:
             self.worker.stop()
+        except Exception:
+            pass
+        try:
+            if self.tray is not None:
+                self.tray.stop()
+                self.tray = None
         except Exception:
             pass
         self.store.save()

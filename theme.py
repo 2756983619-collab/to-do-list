@@ -627,17 +627,32 @@ class ToggleSwitch(tk.Canvas):
     def _animate_to(self, target):
         start = self._pos
         steps = 5
+        self._cancel_animation()
 
         def step(i=1):
+            self._anim_job = None
             if i > steps:
                 self._pos = target
                 self._paint()
                 return
             self._pos = start + (target - start) * (i / steps)
             self._paint()
-            self.after(14, lambda: step(i + 1))
+            self._anim_job = self.after(14, lambda: step(i + 1))
 
         step()
+
+    def _cancel_animation(self):
+        job = getattr(self, "_anim_job", None)
+        if job is not None:
+            try:
+                self.after_cancel(job)
+            except tk.TclError:
+                pass
+            self._anim_job = None
+
+    def destroy(self):
+        self._cancel_animation()
+        super().destroy()
 
     def set_value(self, value, animate=True):
         value = bool(value)

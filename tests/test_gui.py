@@ -1,4 +1,4 @@
-﻿"""Opt-in desktop integration check: TODO_LIST_GUI_TESTS=1 python -m unittest tests.test_gui -v."""
+"""Opt-in desktop integration check: TODO_LIST_GUI_TESTS=1 python -m unittest tests.test_gui -v."""
 import os
 import socket
 import tempfile
@@ -103,6 +103,52 @@ class DesktopTests(unittest.TestCase):
                 self.assertIsNotNone(instance.float._drag_offset)
                 instance.float._end_drag()
                 self.assertTrue(float(instance.float.attributes('-alpha')) > 0.3)
+                self.assertEqual(errors, [])
+            finally:
+                instance.quit()
+                instance.worker.join(timeout=2)
+
+    def test_tray_icon_and_menu_commands(self):
+        """托盘图标：菜单命令要能在主线程里正确落到窗口/设置上。"""
+        import tray
+        errors = []
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'TODO_LIST_DATA': os.path.join(folder, 'todo.json')}), patch.object(tk.Tk, 'report_callback_exception', lambda self, kind, value, trace: errors.append(str(value))):
+            instance = app.App()
+            try:
+                instance.root.update()
+                if os.sys.platform != 'win32':
+                    self.assertIsNone(instance.tray)
+                    self.assertIsNone(tray.WNDPROC)
+                    return
+                self.assertIsNotNone(instance.tray)
+                self.assertTrue(instance.tray.added)
+                self.assertEqual(instance._tray_state(), {'monitor': False, 'float_visible': True})
+                # 菜单 id -> 动作 的映射齐全
+                self.assertEqual(set(tray.MENU_ACTIONS.values()),
+                                 {'show_main', 'toggle_float', 'toggle_monitor', 'quit'})
+                instance._on_tray('toggle_monitor')
+                instance.root.update()
+                self.assertTrue(instance.store.settings['monitor'])
+                instance._on_tray('toggle_monitor')
+                instance.root.update()
+                self.assertFalse(instance.store.settings['monitor'])
+                instance._on_tray('toggle_float')
+                instance.root.update()
+                self.assertFalse(instance.store.settings['float_visible'])
+                self.assertEqual(instance.float.state(), 'withdrawn')
+                instance._on_tray('toggle_float')
+                instance.root.update()
+                self.assertTrue(instance.store.settings['float_visible'])
+                instance._on_tray('show_main')
+                instance.root.update()
+                self.assertEqual(instance.root.state(), 'normal')
+                # 托盘在，主界面收起 + 悬浮窗也收起时，不能把主界面硬拉回来
+                instance.close_main()
+                instance.root.update()
+                instance._on_tray('toggle_float')
+                instance.root.update()
+                self.assertFalse(instance.store.settings['float_visible'])
+                self.assertEqual(instance.root.state(), 'withdrawn')
                 self.assertEqual(errors, [])
             finally:
                 instance.quit()

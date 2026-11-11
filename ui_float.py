@@ -283,6 +283,10 @@ class FloatWindow(tk.Toplevel):
             detail = f"上次提醒 {stamp}"
         else:
             detail = ""
+        if self._hint_job is not None:
+            # 有临时提示正在显示，别把它顶掉（例如"已收起到后台 · 点托盘图标"）
+            self._schedule_size()
+            return
         if detail:
             self.detail_label.configure(text=detail)
             if not self.detail_label.winfo_ismapped():

@@ -75,6 +75,17 @@
 - 主界面底部可以随时勾回 **显示悬浮窗**，还能拖动 **悬浮窗不透明度** 滑块（40%–100%，默认 **90%**，滑杆右侧实时显示百分比）。
 - 悬浮窗和主窗口共用同一份数据，改动实时同步。
 
+### 5. 托盘图标（Windows）
+
+程序运行期间，右下角通知区域会有一个图标（跟微信、Steam 一样），主界面关掉以后靠它把窗口叫回来。
+
+- **左键单击**：打开主界面。
+- **右键**：弹出菜单——打开主界面 / 显示悬浮窗（可勾选）/ 开启监控（可勾选）/ 退出程序。
+- 鼠标悬停在图标上会显示当前状态，例如"To-Do List · 监控中 · 正在检测 6 个窗口"。
+- 图标被收进"^"溢出区时，拖出来放到任务栏上就会一直显示（Windows 自己的设置，程序无法强制）。
+
+![托盘菜单](screenshots/tray-menu.png)
+
 ## 界面预览
 
 | 悬浮窗（监控中） | 专注提醒 |
@@ -90,16 +101,16 @@
 - **自动保存**：任何改动立刻写盘，关掉窗口再打开都在。
 - **单实例**：重复双击 exe 不会开出第二个程序，而是把已经在跑的那个窗口叫到前面。
 - **窗口位置记忆**：主窗口大小位置、悬浮窗位置都会记住。
-- **关闭 ≠ 退出**：点主窗口右上角的 ✕ 只是把主界面**收起到后台**，悬浮窗和监控继续跑（悬浮窗底部会提示一句）。想再打开主界面：点悬浮窗的 `▣`、双击悬浮窗标题，或者**再双击一次 exe**（单实例会把它叫到前面）。
-- **退出程序**：在悬浮窗上右键 → 退出程序。主窗口的 ✕ 只会收起，不会退出。
-- 如果主界面已经收起，又在悬浮窗上点了 ✕，程序会把主界面叫回来——避免一个窗口都不剩、不知道程序还在不在。
+- **关闭 ≠ 退出**：点主窗口右上角的 ✕ 只是把主界面**收起到后台**，悬浮窗、监控和托盘图标继续跑（悬浮窗底部会提示一句）。想再打开主界面：点托盘图标、点悬浮窗的 `▣`、双击悬浮窗标题，或者**再双击一次 exe**（单实例会把它叫到前面）。
+- **退出程序**：右键**托盘图标** → 退出程序（或者在悬浮窗上右键 → 退出程序）。主窗口的 ✕ 只会收起，不会退出。
+- 如果主界面已经收起，又在悬浮窗上点了 ✕，程序会把主界面叫回来——避免一个窗口都不剩、不知道程序还在不在。托盘菜单里的"显示悬浮窗"不受这个限制，可以只留一个托盘图标在后台跑。
 - **使用系统的窗口/进程查询接口**：不注入、不抓屏、不联网、不上传任何数据。
 
 ## 分发给别人
 
-1. **发安装包**：把 Releases 里的 `ToDoList-Setup-v1.2.0.exe`（约 10 MB）发过去，对方双击 → 下一步即可。
+1. **发安装包**：把 Releases 里的 `ToDoList-Setup-v1.3.0.exe`（约 10 MB）发过去，对方双击 → 下一步即可。
    安装时可以勾选"创建桌面快捷方式"和"开机自动启动"（不启动就不会监控，所以建议勾上）。
-2. **发便携版**：发 `ToDoList-portable-v1.2.0.zip`（约 12 MB），对方解压到任意可写目录，双击里面的 `ToDoList-v1.2.0.exe`。
+2. **发便携版**：发 `ToDoList-portable-v1.3.0.zip`（约 12 MB），对方解压到任意可写目录，双击里面的 `ToDoList-v1.3.0.exe`。
 
 需要提前告诉对方两件事：
 
@@ -108,7 +119,7 @@
 - **数据不会被卸载**：卸载安装包只删除程序目录，`%APPDATA%\ToDoList` 里的任务数据会保留。
   想彻底清干净，手动删掉那个文件夹。
 
-> 只发 `ToDoList-v1.2.0.exe` 这一个文件是跑不起来的，它依赖同级的 `_internal` 文件夹——发整个文件夹或压缩包。
+> 只发 `ToDoList-v1.3.0.exe` 这一个文件是跑不起来的，它依赖同级的 `_internal` 文件夹——发整个文件夹或压缩包。
 
 ## 目录结构
 
@@ -116,10 +127,10 @@
 to-do-list/
 ├─ .github/workflows/tests.yml      GitHub Actions：Windows / macOS 上跑单元测试
 ├─ dist/                            构建产物（不进仓库，见 .gitignore）
-│  ├─ ToDoList-v1.2.0/             onedir 可执行目录（内含 ToDoList-v1.2.0.exe）
-│  ├─ installer/                   ToDoList-Setup-v1.2.0.exe 安装包
-│  ├─ portable/ToDoList-v1.2.0/    便携版目录（含 portable.txt）
-│  └─ ToDoList-portable-v1.2.0.zip  便携版压缩包
+│  ├─ ToDoList-v1.3.0/             onedir 可执行目录（内含 ToDoList-v1.3.0.exe）
+│  ├─ installer/                   ToDoList-Setup-v1.3.0.exe 安装包
+│  ├─ portable/ToDoList-v1.3.0/    便携版目录（含 portable.txt）
+│  └─ ToDoList-portable-v1.3.0.zip  便携版压缩包
 ├─ installer/ToDoList.iss          Inno Setup 打包脚本
 ├─ app.py                          程序入口：装配窗口、线程、提醒、数据目录
 ├─ store.py                        数据读写（JSON + 变更通知）
@@ -127,6 +138,7 @@ to-do-list/
 ├─ ui_main.py                      主窗口 + 选择程序对话框
 ├─ ui_float.py                     置顶悬浮窗
 ├─ ui_reminder.py                  专注提醒弹窗
+├─ tray.py                         通知区域图标（Windows，ctypes 调 Shell_NotifyIcon）
 ├─ theme.py                        白色圆角主题、手绘控件（卡片 / 按钮 / 输入框 / 勾选框 / 开关）
 ├─ assets/icon.png、icon.ico       图标（png 给界面，ico 给 exe 和安装包）
 ├─ screenshots/                    界面截图
@@ -201,12 +213,12 @@ python -m PyInstaller --noconfirm --clean ToDoList.spec
 "C:\Users\<你>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\ToDoList.iss
 ```
 
-第一条生成 `dist\ToDoList-v1.2.0\`（onedir，比 onefile 稳，不需要解压临时目录）；
-第二条把它压成安装包 `dist\installer\ToDoList-Setup-v1.2.0.exe`。
+第一条生成 `dist\ToDoList-v1.3.0\`（onedir，比 onefile 稳，不需要解压临时目录）；
+第二条把它压成安装包 `dist\installer\ToDoList-Setup-v1.3.0.exe`。
 
-便携版就是 `dist\ToDoList-v1.2.0\` 复制一份、加一个 `portable.txt`（再附一份使用说明），然后压成 `ToDoList-portable-v1.2.0.zip`。
+便携版就是 `dist\ToDoList-v1.3.0\` 复制一份、加一个 `portable.txt`（再附一份使用说明），然后压成 `ToDoList-portable-v1.3.0.zip`。
 
-版本号写在三处，发新版时一起改：`app.py` 的 `APP_VERSION`、`ToDoList.spec` 顶部的 `APP_VERSION`、`installer\ToDoList.iss` 的 `AppVersion`。exe（`ToDoList-v1.2.0.exe`）、安装包、压缩包的名字都跟着它走；安装包升级时会把 `{app}` 里的旧 exe 删掉，不会残留。
+版本号写在三处，发新版时一起改：`app.py` 的 `APP_VERSION`、`ToDoList.spec` 顶部的 `APP_VERSION`、`installer\ToDoList.iss` 的 `AppVersion`。exe（`ToDoList-v1.3.0.exe`）、安装包、压缩包的名字都跟着它走；安装包升级时会把 `{app}` 里的旧 exe 删掉，不会残留。
 
 ## 已知限制
 
