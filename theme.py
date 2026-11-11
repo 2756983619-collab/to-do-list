@@ -722,7 +722,9 @@ def configure_overlay(window):
             window.configure(bg=KEY)
         elif sys.platform == "darwin":
             window.attributes("-transparent", True)
-            window.configure(bg="systemTransparent")
+            # Clear Canvas backgrounds can leave opaque black edge pixels on Aqua.
+            # Use white content; macos_overlay clips its corners at the native layer.
+            window.configure(bg=SURFACE)
     except tk.TclError:
         window.configure(bg=SURFACE)
 

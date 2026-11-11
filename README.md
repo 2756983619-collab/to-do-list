@@ -171,7 +171,7 @@ python3 -m venv .venv
 - 可用 `TODO_LIST_DATA=/绝对路径/todo.json .venv/bin/python app.py` 指定保存文件。
 - 首次启动会从项目的 `data/todo.json` 复制旧数据，已有目标文件时保留目标数据；迁移失败会报错。
 - 支持触控板滚动、Command+N 聚焦任务输入框、Command+Q 退出，以及悬浮窗右键 / Control 点击菜单。提醒使用系统提示音，响度由系统设置控制。
-- Mac 使用苹方中文字体和 Tk 透明窗口；透明背景不可用时回退为白色窗口。置顶和不透明度保持可调；跨全屏空间的显示由 macOS 窗口管理决定。
+- Mac 使用苹方中文字体、白色画布和原生圆角裁剪。悬浮窗采用非激活面板，拖动和勾选任务时保持当前应用在前台；点击 `▣` 或双击标题可打开主界面。置顶和不透明度保持可调；跨全屏空间的显示由 macOS 窗口管理决定。
 
 Windows 仍保留原有安装、便携数据路径和监控接口。CI 在 Windows / macOS 的 Python 3.10、3.12 上运行测试。Intel Mac 使用相同实现，当前本机验证环境为 Apple Silicon；实际验证范围见 `MACOS_VALIDATION.md`。
 

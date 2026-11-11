@@ -14,11 +14,17 @@ MAX_HEIGHT = 660
 
 class FloatWindow(tk.Toplevel):
     def __init__(self, app):
-        super().__init__(app.root)
+        if sys.platform == "darwin":
+            import macos_overlay
+            macos_overlay.prepare_panel(app.root, "focus_float")
+        super().__init__(app.root, name="focus_float")
+        if sys.platform == "darwin":
+            macos_overlay.configure_panel(self)
         self.app = app
         self.store = app.store
         self.title("专注清单 · 悬浮窗")
-        self.overrideredirect(True)
+        if sys.platform != "darwin":
+            self.overrideredirect(True)
         self.attributes("-topmost", True)
         T.configure_overlay(self)
         self._drag_offset = None
@@ -27,6 +33,37 @@ class FloatWindow(tk.Toplevel):
         self._build()
         self._restore_position()
         self.apply_alpha(float(self.store.settings.get("float_opacity", 0.94)))
+        if sys.platform == "darwin":
+            self.bind("<Map>", lambda event: self.after_idle(self._finish_macos_overlay)
+                      if event.widget is self else None, add="+")
+
+    def _dispatch_native_click(self, phase, x, y):
+        # Aqua cannot route first clicks reliably into an inactive Tk panel.
+        # Resolve the widget within this overlay, then run its normal Tk binding.
+        root_x, root_y = self.winfo_rootx() + x, self.winfo_rooty() + y
+        def find(parent):
+            for child in reversed(parent.winfo_children()):
+                if (child.winfo_ismapped() and child.winfo_rootx() <= root_x < child.winfo_rootx() + child.winfo_width()
+                        and child.winfo_rooty() <= root_y < child.winfo_rooty() + child.winfo_height()):
+                    return find(child)
+            return parent
+        if phase == "press":
+            target = find(self)
+            self._native_click_target = target
+        else:
+            target = getattr(self, "_native_click_target", None)
+            self._native_click_target = None
+        if target is not None and target.winfo_exists():
+            target.event_generate("<ButtonPress-1>" if phase == "press" else "<ButtonRelease-1>",
+                                  x=int(root_x - target.winfo_rootx()), y=int(root_y - target.winfo_rooty()))
+
+    def _save_native_position(self):
+        self._pos = (self.winfo_x(), self.winfo_y())
+        self.store.set_setting("float_pos", list(self._pos), notify=False)
+
+    def _finish_macos_overlay(self):
+        import macos_overlay
+        macos_overlay.finish_overlay(self, RADIUS, panel=True)
 
     # ------------------------------------------------------------ layout
     def _build(self) -> None:
@@ -59,7 +96,9 @@ class FloatWindow(tk.Toplevel):
                                    hover=T.SOFT_2, font=T.get_font(9), bg=T.SURFACE)
         btn_main.pack(side="right", padx=(0, 2))
 
-        for widget in (header, grip, self.title_label, self.dot):
+        self._drag_widgets = (header, grip, self.title_label, self.dot)
+        self._drag_excluded = (btn_close, btn_main)
+        for widget in self._drag_widgets:
             widget.bind("<Button-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._on_drag)
             widget.bind("<ButtonRelease-1>", self._end_drag)

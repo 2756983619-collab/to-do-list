@@ -28,10 +28,17 @@ class ReminderPopup(tk.Toplevel):
         self._close_job = None
         T.configure_overlay(self)
         self._build()
+        if sys.platform == "darwin":
+            self.bind("<Map>", lambda event: self.after_idle(self._finish_macos_overlay)
+                      if event.widget is self else None, add="+")
         try:
             self.attributes("-alpha", ALPHA)
         except tk.TclError:
             pass
+
+    def _finish_macos_overlay(self):
+        import macos_overlay
+        macos_overlay.finish_overlay(self, RADIUS)
 
     # ------------------------------------------------------------ layout
     def _build(self) -> None:
