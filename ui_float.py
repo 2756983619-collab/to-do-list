@@ -12,6 +12,23 @@ RADIUS = 16
 MAX_HEIGHT = 660
 
 
+class _PinButton(T.RoundedButton):
+    """钉子按钮：圆头 + 针尖，和其他图标保持同一套线条风格。"""
+
+    def _paint(self):
+        super()._paint()
+        width = self.winfo_width()
+        if width <= 1:
+            width = int(self["width"])
+        cx, cy = width / 2.0, self._height / 2.0
+        color = self._fg
+        # 图钉：圆头 + 针杆 + 底座，1 倍尺寸下也能认出是"钉"
+        self.create_oval(cx - 3.5, cy - 7.5, cx + 3.5, cy - 0.5, fill=color, outline="")
+        self.create_line(cx, cy - 0.5, cx, cy + 3.5, fill=color, width=2, capstyle=tk.ROUND)
+        self.create_line(cx - 3.5, cy + 5, cx + 3.5, cy + 5, fill=color, width=2,
+                         capstyle=tk.ROUND)
+
+
 class FloatWindow(tk.Toplevel):
     def __init__(self, app):
         if sys.platform == "darwin":
@@ -28,11 +45,15 @@ class FloatWindow(tk.Toplevel):
         self.attributes("-topmost", True)
         T.configure_overlay(self)
         self._drag_offset = None
+        self._pinned = False
+        self._front_job = None
+        self._hint_job = None
         self._pos = (self.winfo_screenwidth() - WIDTH - 40, 120)
         self.withdraw()
         self._build()
         self._restore_position()
         self.apply_alpha(float(self.store.settings.get("float_opacity", 0.94)))
+        self.refresh_pin()
         if sys.platform == "darwin":
             self.bind("<Map>", lambda event: self.after_idle(self._finish_macos_overlay)
                       if event.widget is self else None, add="+")
@@ -76,9 +97,11 @@ class FloatWindow(tk.Toplevel):
         header = tk.Frame(self.inner, bg=T.SURFACE, height=40, cursor="fleur")
         header.pack(fill="x")
         header.pack_propagate(False)
+        self.header = header
         grip = tk.Label(header, text="⋮⋮", font=T.get_font(9), bg=T.SURFACE,
                         fg=T.BORDER_STRONG, cursor="fleur")
         grip.pack(side="left", padx=(0, 8))
+        self.grip = grip
         self.title_label = tk.Label(header, text="专注清单", font=T.get_font(11, "bold"),
                                     bg=T.SURFACE, fg=T.TEXT, cursor="fleur")
         self.title_label.pack(side="left")
@@ -91,13 +114,18 @@ class FloatWindow(tk.Toplevel):
                                     padx=0, radius=9, fill=T.SURFACE, fg=T.TEXT_DIM,
                                     hover=T.SOFT_2, font=T.get_font(9), bg=T.SURFACE)
         btn_close.pack(side="right")
+        btn_pin = _PinButton(header, "", self.toggle_pin, width=28, height=26,
+                             padx=0, radius=9, fill=T.SURFACE, fg=T.TEXT_DIM,
+                             hover=T.SOFT_2, font=T.get_font(9), bg=T.SURFACE)
+        btn_pin.pack(side="right", padx=(0, 2))
+        self.btn_pin = btn_pin
         btn_main = T.RoundedButton(header, "▣", self.app.show_main, width=28, height=26,
                                    padx=0, radius=9, fill=T.SURFACE, fg=T.TEXT_DIM,
                                    hover=T.SOFT_2, font=T.get_font(9), bg=T.SURFACE)
         btn_main.pack(side="right", padx=(0, 2))
 
         self._drag_widgets = (header, grip, self.title_label, self.dot)
-        self._drag_excluded = (btn_close, btn_main)
+        self._drag_excluded = (btn_close, btn_pin, btn_main)
         for widget in self._drag_widgets:
             widget.bind("<Button-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._on_drag)
@@ -146,6 +174,9 @@ class FloatWindow(tk.Toplevel):
                             bd=0, font=T.get_font(9))
         self.menu.add_command(label="打开主界面", command=self.app.show_main)
         self.menu.add_command(label="隐藏悬浮窗", command=self.app.hide_float)
+        self._pin_var = tk.BooleanVar(master=self, value=bool(self._pinned))
+        self.menu.add_checkbutton(label="钉住悬浮窗（固定最前 · 不可拖动）",
+                                  variable=self._pin_var, command=self._on_menu_pin)
         self.menu.add_separator()
         self.menu.add_command(label="退出程序", command=self.app.quit)
         # Toplevel bindings cover every child, including task labels and drag handles.
@@ -257,11 +288,113 @@ class FloatWindow(tk.Toplevel):
     def refresh_status(self) -> None:
         self.app.refresh_status()
 
+    # ------------------------------------------------------------ pinned
+    def toggle_pin(self) -> None:
+        self.set_pinned(not self._pinned)
+
+    def _on_menu_pin(self) -> None:
+        self.set_pinned(bool(self._pin_var.get()))
+
+    def refresh_pin(self) -> None:
+        """跟随设置里的 float_pinned（主界面/菜单改过都走这里）。"""
+        self.set_pinned(bool(self.store.settings.get("float_pinned", False)), save=False)
+
+    def set_pinned(self, pinned: bool, save: bool = True) -> None:
+        pinned = bool(pinned)
+        changed = pinned != self._pinned
+        self._pinned = pinned
+        if save and changed:
+            self.store.set_setting("float_pinned", pinned)
+        if getattr(self, "_pin_var", None) is not None:
+            try:
+                self._pin_var.set(pinned)
+            except tk.TclError:
+                pass
+        self._apply_pin_visual()
+        if pinned:
+            try:
+                self.attributes("-topmost", True)
+                self.lift()
+            except tk.TclError:
+                pass
+            self._keep_front()
+        else:
+            self._stop_keep_front()
+
+    def _apply_pin_visual(self) -> None:
+        pinned = self._pinned
+        try:
+            self.btn_pin.set_style(
+                fill=T.ACCENT_SOFT if pinned else T.SURFACE,
+                fg=T.ACCENT if pinned else T.TEXT_DIM,
+                hover=T.ACCENT_SOFT if pinned else T.SOFT_2,
+            )
+            self.grip.configure(fg=T.ACCENT if pinned else T.BORDER_STRONG)
+            cursor = "arrow" if pinned else "fleur"
+            for widget in self._drag_widgets:
+                widget.configure(cursor=cursor)
+        except tk.TclError:
+            return
+
+    def _keep_front(self) -> None:
+        """钉住时定期抬到最前，压住别的置顶窗口。"""
+        self._stop_keep_front()
+        if self._pinned:
+            self._front_job = self.after(1500, self._keep_front_tick)
+
+    def _keep_front_tick(self) -> None:
+        self._front_job = None
+        if not self._pinned:
+            return
+        try:
+            if self.winfo_viewable():
+                self.attributes("-topmost", True)
+                self.lift()
+        except tk.TclError:
+            return
+        self._front_job = self.after(1500, self._keep_front_tick)
+
+    def _stop_keep_front(self) -> None:
+        if self._front_job is not None:
+            try:
+                self.after_cancel(self._front_job)
+            except tk.TclError:
+                pass
+            self._front_job = None
+
+    # ------------------------------------------------------------ hint
+    def flash_hint(self, text: str, ms: int = 4200) -> None:
+        """底部临时显示一句话，几秒后恢复真实状态。"""
+        try:
+            self.detail_label.configure(text=text)
+            if not self.detail_label.winfo_ismapped():
+                self.detail_label.pack(anchor="w", pady=(6, 0))
+            self._schedule_size()
+        except tk.TclError:
+            return
+        if self._hint_job is not None:
+            try:
+                self.after_cancel(self._hint_job)
+            except tk.TclError:
+                pass
+        self._hint_job = self.after(ms, self._clear_hint)
+
+    def _clear_hint(self) -> None:
+        self._hint_job = None
+        enabled = bool(self.store.settings.get("monitor"))
+        try:
+            self.apply_status(getattr(self.app, "status_text", ""),
+                              getattr(self.app, "status_color", T.MUTED), enabled)
+        except tk.TclError:
+            pass
+
     # ------------------------------------------------------------ window control
     def show(self) -> None:
         self.deiconify()
         self.lift()
         self.attributes("-topmost", True)
+        if self._pinned:
+            self._keep_front()
         self._apply_size()
         self._schedule_size()
 
@@ -293,10 +426,12 @@ class FloatWindow(tk.Toplevel):
 
     # ------------------------------------------------------------ dragging
     def _start_drag(self, event):
+        if self._pinned:
+            return
         self._drag_offset = (event.x_root - self.winfo_x(), event.y_root - self.winfo_y())
 
     def _on_drag(self, event):
-        if not self._drag_offset:
+        if self._pinned or not self._drag_offset:
             return
         dx, dy = self._drag_offset
         self.geometry(f"+{event.x_root - dx}+{event.y_root - dy}")

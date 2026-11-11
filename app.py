@@ -150,10 +150,29 @@ class App:
     def hide_main(self) -> None:
         self.root.withdraw()
 
+    def close_main(self) -> None:
+        """关闭主窗口 ≠ 退出：收起到后台，悬浮窗与监控继续工作。"""
+        if not self.store.settings.get("float_visible", True):
+            self.store.set_setting("float_visible", True)
+        self.hide_main()
+        try:
+            self.float.show()
+            self.float.flash_hint("主界面已收起到后台 · 点 ▣ 可打开")
+        except tk.TclError:
+            pass
+
     def show_float(self) -> None:
         self.float.show()
 
     def hide_float(self) -> None:
+        try:
+            main_visible = bool(self.root.winfo_viewable())
+        except tk.TclError:
+            main_visible = True
+        if not main_visible:
+            # 主界面已经收起，再藏悬浮窗就一个窗口都不剩了——把主界面叫回来
+            self.show_main()
+            return
         self.store.set_setting("float_visible", False)
 
     def _apply_float_visibility(self) -> None:
@@ -306,6 +325,7 @@ class App:
                 self.root.refresh_all()
                 self.float.refresh_rows()
                 self.float.refresh_monitor()
+                self.float.refresh_pin()
                 self.refresh_status()
             if reason == "settings":
                 self._apply_float_visibility()

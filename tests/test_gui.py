@@ -33,7 +33,11 @@ class DesktopTests(unittest.TestCase):
                 instance.float.apply_alpha(0.7)
                 instance.root.update()
                 self.assertAlmostEqual(float(instance.float.attributes('-alpha')), 0.7, places=1)
-                self.assertNotEqual(instance.float.cget('bg'), '#ff01fe')
+                if os.sys.platform == 'win32':
+                    # Windows 用色键挖圆角，底色必须是那个哨兵色
+                    self.assertEqual(instance.float.cget('bg'), '#ff01fe')
+                else:
+                    self.assertNotEqual(instance.float.cget('bg'), '#ff01fe')
                 instance.float._start_drag(SimpleNamespace(x_root=100, y_root=100))
                 instance.float._on_drag(SimpleNamespace(x_root=120, y_root=120))
                 instance.float._end_drag()
@@ -66,6 +70,41 @@ class DesktopTests(unittest.TestCase):
             finally:
                 if server:
                     server.close()
+                instance.quit()
+                instance.worker.join(timeout=2)
+
+    def test_close_to_background_and_pin(self):
+        errors = []
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'TODO_LIST_DATA': os.path.join(folder, 'todo.json')}), patch.object(tk.Tk, 'report_callback_exception', lambda self, kind, value, trace: errors.append(str(value))):
+            instance = app.App()
+            try:
+                instance.root.update()
+                # 关闭主窗口 = 收起到后台，悬浮窗留下来
+                instance.close_main()
+                instance.root.update()
+                self.assertEqual(instance.root.state(), 'withdrawn')
+                self.assertTrue(instance.store.settings['float_visible'])
+                # 主界面收起时再点隐藏悬浮窗，不会把自己藏没
+                instance.hide_float()
+                instance.root.update()
+                self.assertEqual(instance.root.state(), 'normal')
+                # 钉住：记住设置、禁止拖动
+                instance.show_float()
+                instance.float.set_pinned(True)
+                instance.root.update()
+                self.assertTrue(instance.store.settings['float_pinned'])
+                self.assertEqual(float(instance.float.attributes('-topmost')), 1.0)
+                instance.float._start_drag(SimpleNamespace(x_root=100, y_root=100))
+                self.assertIsNone(instance.float._drag_offset)
+                instance.float.set_pinned(False)
+                instance.root.update()
+                self.assertFalse(instance.store.settings['float_pinned'])
+                instance.float._start_drag(SimpleNamespace(x_root=100, y_root=100))
+                self.assertIsNotNone(instance.float._drag_offset)
+                instance.float._end_drag()
+                self.assertTrue(float(instance.float.attributes('-alpha')) > 0.3)
+                self.assertEqual(errors, [])
+            finally:
                 instance.quit()
                 instance.worker.join(timeout=2)
 

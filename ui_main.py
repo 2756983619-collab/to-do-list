@@ -32,7 +32,7 @@ class MainWindow(tk.Tk):
 
         self._build()
         self.refresh_all()
-        self.protocol("WM_DELETE_WINDOW", self.app.quit)
+        self.protocol("WM_DELETE_WINDOW", self.app.close_main)
         self.bind("<Control-n>", lambda _e: self.task_entry.focus_set())
         if sys.platform == "darwin":
             self.bind("<Command-n>", lambda _e: self.task_entry.focus_set())
@@ -236,6 +236,14 @@ class MainWindow(tk.Tk):
         self.float_label.pack(side="left", padx=(8, 0))
         self.float_label.bind("<Button-1>", lambda _e: self.float_box._on_click())
 
+        self.pin_box = T.CheckBox(left, value=False, bg=T.BG, size=18,
+                                  command=self._on_pin_toggle)
+        self.pin_box.pack(side="left", padx=(16, 0))
+        self.pin_label = tk.Label(left, text="钉住悬浮窗", font=T.get_font(9), bg=T.BG,
+                                  fg=T.TEXT_DIM, cursor="hand2")
+        self.pin_label.pack(side="left", padx=(8, 0))
+        self.pin_label.bind("<Button-1>", lambda _e: self.pin_box._on_click())
+
         right = tk.Frame(foot, bg=T.BG)
         right.pack(side="right")
         tk.Label(right, text="悬浮窗不透明度", font=T.get_font(9), bg=T.BG,
@@ -368,6 +376,7 @@ class MainWindow(tk.Tk):
         settings = self.store.settings
         self.repeat_box.set_value(bool(settings.get("repeat_alert", True)))
         self.float_box.set_value(bool(settings.get("float_visible", True)))
+        self.pin_box.set_value(bool(settings.get("float_pinned", False)))
         self.interval_var.set(str(int(settings.get("interval", 90))))
         opacity = float(settings.get("float_opacity", 0.9)) * 100
         self.opacity_slider.set(opacity)
@@ -505,6 +514,11 @@ class MainWindow(tk.Tk):
         if self._loading:
             return
         self.store.set_setting("float_visible", bool(value))
+
+    def _on_pin_toggle(self, value: bool) -> None:
+        if self._loading:
+            return
+        self.store.set_setting("float_pinned", bool(value))
 
     def _on_opacity(self, value=None) -> None:
         if self._loading:

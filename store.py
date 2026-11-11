@@ -15,6 +15,7 @@ DEFAULT_SETTINGS = {
     "float_visible": True,     # 显示悬浮窗
     "float_opacity": 0.9,      # 悬浮窗不透明度（半透明）
     "float_pos": None,         # 悬浮窗上次位置 [x, y]
+    "float_pinned": False,     # 钉住悬浮窗：固定最前、不可拖动
     "main_geometry": None,     # 主窗口上次大小位置
     "last_callout": 0.0,       # 上次提醒时间戳（仅作展示）
 }
@@ -101,6 +102,7 @@ class Store:
         settings["monitor"] = bool(settings.get("monitor"))
         settings["repeat_alert"] = bool(settings.get("repeat_alert"))
         settings["float_visible"] = bool(settings.get("float_visible", True))
+        settings["float_pinned"] = bool(settings.get("float_pinned", False))
         try:
             settings["interval"] = max(10, min(3600, int(settings.get("interval") or 90)))
         except (TypeError, ValueError):
