@@ -16,6 +16,7 @@ DEFAULT_SETTINGS = {
     "float_opacity": 0.9,      # 悬浮窗不透明度（半透明）
     "float_pos": None,         # 悬浮窗上次位置 [x, y]
     "float_pinned": False,     # 钉住悬浮窗：固定最前、不可拖动
+    "tray_hint_shown": False,  # 是否已经提示过"图标在右下角"
     "main_geometry": None,     # 主窗口上次大小位置
     "last_callout": 0.0,       # 上次提醒时间戳（仅作展示）
 }

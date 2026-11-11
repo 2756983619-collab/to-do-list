@@ -82,9 +82,16 @@
 - **左键单击**：打开主界面。
 - **右键**：弹出菜单——打开主界面 / 显示悬浮窗（可勾选）/ 开启监控（可勾选）/ 退出程序。
 - 鼠标悬停在图标上会显示当前状态，例如"To-Do List · 监控中 · 正在检测 6 个窗口"。
-- 图标被收进"^"溢出区时，拖出来放到任务栏上就会一直显示（Windows 自己的设置，程序无法强制）。
+- 图标图案就是程序自己的蓝底对勾（v1.3.1 起图标文件已经打进程序里，不会再显示成系统默认图标）。
+- 启动时程序会自动尝试把图标设为**常驻任务栏**（写 `HKCU\Control Panel\NotifyIconSettings` 里的 `IsPromoted`）。这一步被系统策略拦住时，第一次运行会弹一条通知提醒你去 `^` 里找；也可以手动把图标从 `^` 拖到任务栏，之后就一直显示。
+- 资源管理器（explorer.exe）重启后图标会自动挂回去，不用重启程序。
+- **macOS 没有通知区域**，用 Dock 图标代替：主界面收起后点 Dock 里的程序图标就会回来，退出用 `Cmd + Q`。
 
 ![托盘菜单](screenshots/tray-menu.png)
+
+图标被收进 `^` 溢出区时，第一次运行悬浮窗底部会提示一句：
+
+![悬浮窗里的托盘提示](screenshots/float-tray-hint.png)
 
 ## 界面预览
 
@@ -108,9 +115,9 @@
 
 ## 分发给别人
 
-1. **发安装包**：把 Releases 里的 `ToDoList-Setup-v1.3.0.exe`（约 10 MB）发过去，对方双击 → 下一步即可。
+1. **发安装包**：把 Releases 里的 `ToDoList-Setup-v1.3.1.exe`（约 10 MB）发过去，对方双击 → 下一步即可。
    安装时可以勾选"创建桌面快捷方式"和"开机自动启动"（不启动就不会监控，所以建议勾上）。
-2. **发便携版**：发 `ToDoList-portable-v1.3.0.zip`（约 12 MB），对方解压到任意可写目录，双击里面的 `ToDoList-v1.3.0.exe`。
+2. **发便携版**：发 `ToDoList-portable-v1.3.1.zip`（约 12 MB），对方解压到任意可写目录，双击里面的 `ToDoList-v1.3.1.exe`。
 
 需要提前告诉对方两件事：
 
@@ -119,7 +126,7 @@
 - **数据不会被卸载**：卸载安装包只删除程序目录，`%APPDATA%\ToDoList` 里的任务数据会保留。
   想彻底清干净，手动删掉那个文件夹。
 
-> 只发 `ToDoList-v1.3.0.exe` 这一个文件是跑不起来的，它依赖同级的 `_internal` 文件夹——发整个文件夹或压缩包。
+> 只发 `ToDoList-v1.3.1.exe` 这一个文件是跑不起来的，它依赖同级的 `_internal` 文件夹——发整个文件夹或压缩包。
 
 ## 目录结构
 
@@ -127,10 +134,10 @@
 to-do-list/
 ├─ .github/workflows/tests.yml      GitHub Actions：Windows / macOS 上跑单元测试
 ├─ dist/                            构建产物（不进仓库，见 .gitignore）
-│  ├─ ToDoList-v1.3.0/             onedir 可执行目录（内含 ToDoList-v1.3.0.exe）
-│  ├─ installer/                   ToDoList-Setup-v1.3.0.exe 安装包
-│  ├─ portable/ToDoList-v1.3.0/    便携版目录（含 portable.txt）
-│  └─ ToDoList-portable-v1.3.0.zip  便携版压缩包
+│  ├─ ToDoList-v1.3.1/             onedir 可执行目录（内含 ToDoList-v1.3.1.exe）
+│  ├─ installer/                   ToDoList-Setup-v1.3.1.exe 安装包
+│  ├─ portable/ToDoList-v1.3.1/    便携版目录（含 portable.txt）
+│  └─ ToDoList-portable-v1.3.1.zip  便携版压缩包
 ├─ installer/ToDoList.iss          Inno Setup 打包脚本
 ├─ app.py                          程序入口：装配窗口、线程、提醒、数据目录
 ├─ store.py                        数据读写（JSON + 变更通知）
@@ -189,6 +196,7 @@ python3 -m venv .venv
 - 可用 `TODO_LIST_DATA=/绝对路径/todo.json .venv/bin/python app.py` 指定保存文件。
 - 首次启动会从项目的 `data/todo.json` 复制旧数据，已有目标文件时保留目标数据；迁移失败会报错。
 - 支持触控板滚动、Command+N 聚焦任务输入框、Command+Q 退出，以及悬浮窗右键 / Control 点击菜单。提醒使用系统提示音，响度由系统设置控制。
+- 关闭主窗口只是把主界面收起到后台，悬浮窗、监控继续跑（和 Windows 一致）；点 Dock 图标可以把主界面叫回来——程序给 Tk 注册了 `::tk::mac::ReopenApplication` 事件。悬浮窗的"钉住"同样可用（固定最前、不可拖动）。
 - Mac 使用苹方中文字体、白色画布和原生圆角裁剪。悬浮窗采用非激活面板，拖动和勾选任务时保持当前应用在前台；点击 `▣` 或双击标题可打开主界面。置顶和不透明度保持可调；跨全屏空间的显示由 macOS 窗口管理决定。
 
 Windows 仍保留原有安装、便携数据路径和监控接口。CI 在 Windows / macOS 的 Python 3.10、3.12 上运行测试。Intel Mac 使用相同实现，当前本机验证环境为 Apple Silicon；实际验证范围见 `MACOS_VALIDATION.md`。
@@ -213,12 +221,12 @@ python -m PyInstaller --noconfirm --clean ToDoList.spec
 "C:\Users\<你>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\ToDoList.iss
 ```
 
-第一条生成 `dist\ToDoList-v1.3.0\`（onedir，比 onefile 稳，不需要解压临时目录）；
-第二条把它压成安装包 `dist\installer\ToDoList-Setup-v1.3.0.exe`。
+第一条生成 `dist\ToDoList-v1.3.1\`（onedir，比 onefile 稳，不需要解压临时目录）；
+第二条把它压成安装包 `dist\installer\ToDoList-Setup-v1.3.1.exe`。
 
-便携版就是 `dist\ToDoList-v1.3.0\` 复制一份、加一个 `portable.txt`（再附一份使用说明），然后压成 `ToDoList-portable-v1.3.0.zip`。
+便携版就是 `dist\ToDoList-v1.3.1\` 复制一份、加一个 `portable.txt`（再附一份使用说明），然后压成 `ToDoList-portable-v1.3.1.zip`。
 
-版本号写在三处，发新版时一起改：`app.py` 的 `APP_VERSION`、`ToDoList.spec` 顶部的 `APP_VERSION`、`installer\ToDoList.iss` 的 `AppVersion`。exe（`ToDoList-v1.3.0.exe`）、安装包、压缩包的名字都跟着它走；安装包升级时会把 `{app}` 里的旧 exe 删掉，不会残留。
+版本号写在三处，发新版时一起改：`app.py` 的 `APP_VERSION`、`ToDoList.spec` 顶部的 `APP_VERSION`、`installer\ToDoList.iss` 的 `AppVersion`。exe（`ToDoList-v1.3.1.exe`）、安装包、压缩包的名字都跟着它走；安装包升级时会把 `{app}` 里的旧 exe 删掉，不会残留。
 
 ## 已知限制
 

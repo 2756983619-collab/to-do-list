@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # 版本号只改这一行：exe 名与输出目录都跟着它走
-APP_VERSION = '1.3.0'
+APP_VERSION = '1.3.1'
 EXE_NAME = f'ToDoList-v{APP_VERSION}'
 
 
@@ -8,7 +8,7 @@ a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets/icon.png', 'assets')],
+    datas=[('assets/icon.png', 'assets'), ('assets/icon.ico', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

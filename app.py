@@ -16,7 +16,11 @@ from tkinter import messagebox
 import monitor
 import store as store_module
 import theme as T
-import tray as tray_module
+
+try:  # 托盘只有 Windows 有；macOS 上即便导入失败也不该连累启动
+    import tray as tray_module
+except Exception:  # pragma: no cover - 只可能在非 Windows 上触发
+    tray_module = None
 
 from ui_float import FloatWindow
 from ui_main import MainWindow
@@ -29,7 +33,7 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "ToDoList"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 
 
 def _writable(folder: str) -> bool:
@@ -130,19 +134,28 @@ class App:
         self.worker.start()
 
         self.tray: tray_module.TrayIcon | None = None
-        if sys.platform == "win32":
+        if sys.platform == "win32" and tray_module is not None:
             try:
                 self.tray = tray_module.TrayIcon(
                     tray_module.tray_icon_path(BASE_DIR),
                     "To-Do List · 专注清单",
                     lambda action: self.queue.put(("tray", {"action": action}, time.time())),
                     state_provider=self._tray_state,
+                    log_path=os.path.join(DATA_DIR, "tray.log"),
                 )
                 if not self.tray.start():
                     self.tray = None
+                else:
+                    self._announce_tray()
             except Exception as exc:  # 托盘失败不能连累主程序
-                print(f"[tray] 未启用：{exc!r}", file=sys.stderr)
+                tray_module._log(f"未启用托盘：{exc!r}")
                 self.tray = None
+        elif sys.platform == "darwin":
+            # macOS 没有通知区域，用 Dock 图标：点 Dock 就把主界面叫回来
+            try:
+                self.root.createcommand("::tk::mac::ReopenApplication", self.show_main)
+            except Exception:
+                pass
 
         self.store.add_listener(self._on_store_change)
         self._pump_job = self.root.after(150, self._pump)
@@ -318,6 +331,33 @@ class App:
         elif action == "quit":
             self.quit()
 
+    def _announce_tray(self) -> None:
+        """第一次挂上托盘图标时提一句，免得用户在任务栏上找不到。"""
+        tray = self.tray
+        if tray is None or self.store.settings.get("tray_hint_shown"):
+            return
+
+        def hint() -> None:
+            if self.store.settings.get("tray_hint_shown"):
+                return
+            if getattr(tray, "promoted", False):
+                # 已经钉在任务栏上了，不用教用户在哪儿找
+                self.store.set_setting("tray_hint_shown", True)
+                return
+            tray.show_balloon(
+                "To-Do List 已在后台运行",
+                "图标在右下角通知区；Windows 11 可能把它收进了 ^ 溢出区，"
+                "拖到任务栏上就会一直显示。右键图标可以打开窗口或退出。",
+                tray_module.NIIF_INFO,
+            )
+            # 气泡通知在部分系统上会被静默丢掉，悬浮窗里再提示一次
+            if self.float is not None and self.store.settings.get("float_visible"):
+                self.float.flash_hint("托盘图标可能在 ^ 溢出区里 · 拖到任务栏就会常驻", 5200)
+            self.store.set_setting("tray_hint_shown", True)
+
+        # 等一会儿再判断：图标常驻任务栏的设置是异步写的
+        self._tray_job = self.root.after(3000, hint)
+
     # ------------------------------------------------------------ monitor events
     def _pump(self) -> None:
         try:
@@ -397,7 +437,7 @@ class App:
     # ------------------------------------------------------------ teardown
     def quit(self) -> None:
         for job in (getattr(self, "_geometry_job", None), getattr(self, "_pump_job", None),
-                    getattr(self, "_visibility_job", None)):
+                    getattr(self, "_visibility_job", None), getattr(self, "_tray_job", None)):
             try:
                 if job is not None:
                     self.root.after_cancel(job)
@@ -406,6 +446,7 @@ class App:
         self._geometry_job = None
         self._pump_job = None
         self._visibility_job = None
+        self._tray_job = None
         try:
             if self.root.state() == "normal":
                 self.store.set_setting("main_geometry", self.root.geometry(), notify=False)
