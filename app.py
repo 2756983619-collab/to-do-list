@@ -7,13 +7,17 @@ import queue
 import shutil
 import socket
 import sys
+import subprocess
+import tempfile
 import threading
 import time
 import tkinter as tk
+from tkinter import messagebox
 
 import monitor
 import store as store_module
 import theme as T
+
 from ui_float import FloatWindow
 from ui_main import MainWindow
 from ui_reminder import ReminderPopup
@@ -30,22 +34,28 @@ APP_VERSION = "1.1.0"
 
 def _writable(folder: str) -> bool:
     """真正试写一次：有些目录存在但不可写（受控文件夹、只读安装位置等）。"""
-    probe = os.path.join(folder, ".write-probe")
     try:
         os.makedirs(folder, exist_ok=True)
-        with open(probe, "w", encoding="utf-8") as handle:
-            handle.write("ok")
-        os.remove(probe)
+        with tempfile.TemporaryFile(dir=folder) as handle:
+            handle.write(b"ok")
         return True
     except OSError:
         return False
 
 
 def _data_dir() -> str:
-    """数据目录：默认 %APPDATA%\\ToDoList；exe 旁有 portable.txt 则跟随程序走。
+    """Mac 默认 Application Support；Windows 默认 APPDATA，支持便携目录。
 
     逐个候选目录试写，第一个能写的就用——避免装到只读位置时任务悄悄存不上。
     """
+    override = os.environ.get("TODO_LIST_DATA")
+    if override:
+        return os.path.dirname(os.path.abspath(os.path.expanduser(override)))
+    if sys.platform == "darwin":
+        folder = os.path.expanduser("~/Library/Application Support/ToDoList")
+        if not _writable(folder):
+            raise OSError(f"数据目录不可写：{folder}")
+        return folder
     portable_marker = os.path.join(BASE_DIR, "portable.txt")
     if os.path.exists(portable_marker):
         return os.path.join(BASE_DIR, "data")
@@ -66,8 +76,8 @@ def _data_dir() -> str:
     return os.path.join(BASE_DIR, "data")
 
 
-DATA_DIR = _data_dir()
-DATA_FILE = os.environ.get("TODO_LIST_DATA") or os.path.join(DATA_DIR, "todo.json")
+DATA_DIR = ""
+DATA_FILE = ""
 LOCK_PORT = 47531
 
 
@@ -81,12 +91,17 @@ def _migrate_legacy_data() -> None:
     try:
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
         shutil.copy2(legacy, DATA_FILE)
-    except OSError:
-        pass
+    except OSError as exc:
+        raise OSError(f"旧数据迁移失败：{legacy} → {DATA_FILE}") from exc
 
 
 class App:
     def __init__(self) -> None:
+        global DATA_DIR, DATA_FILE
+        DATA_DIR = _data_dir()
+        DATA_FILE = os.path.abspath(os.path.expanduser(os.environ.get("TODO_LIST_DATA") or os.path.join(DATA_DIR, "todo.json")))
+        if not _writable(os.path.dirname(DATA_FILE)):
+            raise OSError(f"数据目录不可写：{os.path.dirname(DATA_FILE)}")
         _migrate_legacy_data()
         self.store = store_module.Store(DATA_FILE)
         self.snooze_until = 0.0
@@ -96,6 +111,8 @@ class App:
         self.status_color = T.MUTED
         self.last_status: dict = {}
         self._geometry_job = None
+        self._permission_prompted = False
+        self._permission_settings_error = False
 
         self.root = MainWindow(self)
         self.float = FloatWindow(self)
@@ -117,6 +134,9 @@ class App:
         except tk.TclError:
             pass
         self.refresh_status()
+        if self.store.settings.get("monitor"):
+            self.root.after(800, lambda: self.ensure_accessibility()
+                            if self.store.settings.get("monitor") else None)
 
     # ------------------------------------------------------------ windows
     def show_main(self) -> None:
@@ -143,7 +163,41 @@ class App:
             self.float.hide()
 
     # ------------------------------------------------------------ monitor control
+    def open_accessibility_settings(self) -> None:
+        if sys.platform != "darwin":
+            return
+        try:
+            subprocess.run(
+                ["/usr/bin/open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
+                check=True, timeout=3, capture_output=True)
+            self._permission_settings_error = False
+        except (OSError, subprocess.SubprocessError):
+            self._permission_settings_error = True
+        self.refresh_status()
+
+    def _handle_accessibility(self, trusted: bool) -> bool:
+        self.last_status["accessibility"] = trusted
+        if trusted:
+            self._permission_prompted = False
+            self._permission_settings_error = False
+        elif not self._permission_prompted:
+            self._permission_prompted = True
+            monitor.request_accessibility()
+        self.refresh_status()
+        return trusted
+
+    def ensure_accessibility(self) -> bool:
+        if sys.platform != "darwin":
+            return True
+        try:
+            return self._handle_accessibility(monitor.accessibility_trusted())
+        except RuntimeError as exc:
+            messagebox.showerror("Mac 依赖未就绪", str(exc), parent=self.root)
+            return False
+
     def set_monitor(self, enabled: bool) -> None:
+        if enabled:
+            self.ensure_accessibility()
         self.store.set_setting("monitor", bool(enabled))
         if enabled:
             self.snooze_until = 0.0
@@ -160,14 +214,26 @@ class App:
     def refresh_status(self) -> None:
         settings = self.store.settings
         enabled = bool(settings.get("monitor"))
-        if not enabled:
+        if self._permission_settings_error:
+            text, color = "设置打开失败 · 请从“监控权限”重试或手动打开辅助功能", T.AMBER
+        elif self._permission_prompted:
+            text, color = "请在辅助功能中授权 Python 或启动它的终端", T.AMBER
+        elif not enabled:
             text, color = "监控已暂停", T.MUTED
+        elif self.last_status.get("error"):
+            text, color = "监控采样失败 · 请重新启动监控", T.RED
+        elif self.last_status.get("accessibility") is False:
+            text, color = "软件检测中 · 网站检测需要辅助功能权限", T.AMBER
+        elif self.last_status.get("sampling_errors"):
+            text, color = f"监控中 · 部分窗口读取失败（{self.last_status['sampling_errors']}）", T.AMBER
         elif time.time() < self.snooze_until:
             left = int(self.snooze_until - time.time())
             text, color = f"提醒暂停 {max(1, left // 60 + 1)} 分钟", T.AMBER
         else:
             windows = int(self.last_status.get("windows") or 0)
             text, color = f"监控中 · 正在检测 {windows} 个窗口", T.GREEN
+        if self.store.last_error:
+            text, color = "保存失败 · 请检查数据目录写入权限", T.RED
         signature = (text, color, enabled)
         if signature == getattr(self, "_status_signature", None):
             return
@@ -196,9 +262,16 @@ class App:
                     break
                 if kind == "status":
                     self.last_status = payload
+                    if (sys.platform == "darwin" and payload.get("enabled")
+                            and self.store.settings.get("monitor")
+                            and isinstance(payload.get("accessibility"), bool)):
+                        self._handle_accessibility(payload["accessibility"])
                 elif kind == "alerts":
                     self._on_alerts(payload, stamp)
+                elif kind == "show":
+                    self.show_main()
                 elif kind == "error":
+                    self.last_status = {"error": payload.get("message")}
                     print(f"[monitor] {payload.get('message')}")
         finally:
             self.refresh_status()
@@ -324,8 +397,12 @@ def _notify_existing() -> bool:
 def main() -> int:
     if _notify_existing():
         return 0
-    app = App()
-    _serve_show_requests(app.show_main)
+    try:
+        app = App()
+    except (OSError, RuntimeError) as exc:
+        print(f"启动失败：{exc}", file=sys.stderr)
+        return 1
+    _serve_show_requests(lambda: app.queue.put(("show", {}, time.time())))
     try:
         app.root.mainloop()
     except KeyboardInterrupt:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
-import winsound
+if sys.platform == "win32":
+    import winsound
 
 import theme as T
 
@@ -23,17 +25,20 @@ class ReminderPopup(tk.Toplevel):
         self.title("专注提醒")          # 标题栏不可见，但对辅助功能 / 自动化识别有用
         self.overrideredirect(True)
         self.attributes("-topmost", True)
-        self.configure(bg=T.KEY)
         self._close_job = None
-        try:
-            self.attributes("-transparentcolor", T.KEY)
-        except tk.TclError:
-            pass
+        T.configure_overlay(self)
         self._build()
+        if sys.platform == "darwin":
+            self.bind("<Map>", lambda event: self.after_idle(self._finish_macos_overlay)
+                      if event.widget is self else None, add="+")
         try:
             self.attributes("-alpha", ALPHA)
         except tk.TclError:
             pass
+
+    def _finish_macos_overlay(self):
+        import macos_overlay
+        macos_overlay.finish_overlay(self, RADIUS)
 
     # ------------------------------------------------------------ layout
     def _build(self) -> None:
@@ -145,6 +150,9 @@ class ReminderPopup(tk.Toplevel):
 
     def _beep(self) -> None:
         try:
-            winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            if sys.platform == "win32":
+                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            else:
+                self.bell()
         except Exception:
             pass

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import math
+import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
@@ -31,7 +32,7 @@ RED = "#ef4d5a"
 RED_SOFT = "#fdecef"
 AMBER = "#e79a1c"
 AMBER_SOFT = "#fdf3e2"
-FAMILY = "Microsoft YaHei UI"
+FAMILY = "PingFang SC" if sys.platform == "darwin" else "Microsoft YaHei UI"
 
 KEY = "#ff01fe"              # 透明色键，只用于圆角窗口的挖空区
 
@@ -160,8 +161,8 @@ class RoundedShell(tk.Canvas):
     """
 
     def __init__(self, master, radius=18, fill=SURFACE, outline=BORDER,
-                 pad=(1, 1), bg=KEY):
-        super().__init__(master, bg=bg, bd=0, highlightthickness=0)
+                 pad=(1, 1), bg=None):
+        super().__init__(master, bg=bg or parent_bg(master, SURFACE), bd=0, highlightthickness=0)
         self._radius = radius
         self._fill = fill
         self._outline = outline
@@ -680,7 +681,7 @@ class ScrollFrame(tk.Frame):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         if self._max_height:
             wanted = max(24, min(self.inner.winfo_reqheight(), self._max_height))
-            if int(self.canvas["height"]) != wanted:
+            if self.canvas.winfo_pixels(self.canvas["height"]) != wanted:
                 self.canvas.configure(height=wanted)
 
     def _on_canvas_configure(self, event=None):
@@ -706,6 +707,28 @@ class ScrollFrame(tk.Frame):
         self.canvas.yview_moveto(1.0)
 
 
+def wheel_units(delta):
+    if sys.platform == "darwin":
+        return -int(delta) if int(delta) else (-1 if delta > 0 else 1 if delta < 0 else 0)
+    return int(-delta / 120)
+
+
+def configure_overlay(window):
+    """Configure transparent corners, falling back to a white rectangle."""
+    window.configure(bg=SURFACE)
+    try:
+        if sys.platform == "win32":
+            window.attributes("-transparentcolor", KEY)
+            window.configure(bg=KEY)
+        elif sys.platform == "darwin":
+            window.attributes("-transparent", True)
+            # Clear Canvas backgrounds can leave opaque black edge pixels on Aqua.
+            # Use white content; macos_overlay clips its corners at the native layer.
+            window.configure(bg=SURFACE)
+    except tk.TclError:
+        window.configure(bg=SURFACE)
+
+
 def install_wheel_router(root):
     """滚轮事件只作用于指针下面那个滚动区。"""
 
@@ -715,7 +738,7 @@ def install_wheel_router(root):
             canvas = getattr(widget, "_wheel_canvas", None)
             if canvas is not None:
                 try:
-                    canvas.yview_scroll(int(-event.delta / 120), "units")
+                    canvas.yview_scroll(wheel_units(event.delta), "units")
                 except tk.TclError:
                     return "break"
                 return "break"
@@ -761,6 +784,8 @@ def style_widgets(root):
 
 def style_titlebar(window, dark=False):
     """把原生标题栏切成浅色（Windows 10/11 深色标题栏属性的反向操作）。"""
+    if sys.platform != "win32":
+        return
     try:
         import ctypes
         from ctypes import wintypes

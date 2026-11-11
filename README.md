@@ -3,9 +3,9 @@
 [![tests](https://github.com/2756983619-collab/to-do-list/actions/workflows/tests.yml/badge.svg)](https://github.com/2756983619-collab/to-do-list/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey)](#)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](#)
 
-一个 Windows 桌面小工具：左边管理今天的任务，右边盯住那些一打开就会让你分心的网站和软件。
+一个支持 Windows 和 macOS 的桌面小工具：左边管理今天的任务，右边盯住那些一打开就会让你分心的网站和软件。
 开着监控时，一旦检测到你打开了它们，就会弹窗提醒你"回到工作"。
 
 界面是白色圆角风格（卡片、输入框、按钮、勾选框都是圆角），主窗口负责编辑，另有一个像音乐播放器歌词窗口一样的置顶悬浮窗；提醒弹窗带半透明毛玻璃感。
@@ -88,7 +88,7 @@
 - **单实例**：重复双击 exe 不会开出第二个程序，而是把已经在跑的那个窗口叫到前面。
 - **窗口位置记忆**：主窗口大小位置、悬浮窗位置都会记住。
 - **退出程序**：点主窗口右上角的 ✕，或者在悬浮窗上右键 → 退出程序。悬浮窗上的 ✕ 只是把悬浮窗收起来。
-- **只用 Windows 自带的窗口/进程查询接口**：不注入、不抓屏、不联网、不上传任何数据。
+- **使用系统的窗口/进程查询接口**：不注入、不抓屏、不联网、不上传任何数据。
 
 ## 分发给别人
 
@@ -109,7 +109,7 @@
 
 ```
 to-do-list/
-├─ .github/workflows/tests.yml      GitHub Actions：Windows 上跑单元测试
+├─ .github/workflows/tests.yml      GitHub Actions：Windows / macOS 上跑单元测试
 ├─ dist/                            构建产物（不进仓库，见 .gitignore）
 │  ├─ ToDoList/ToDoList.exe         onedir 可执行目录
 │  ├─ installer/                   ToDoList-Setup-1.1.0.exe 安装包
@@ -133,13 +133,48 @@ to-do-list/
 
 ## 从源码运行
 
-需要 Windows + Python 3.10 以上（自带 tkinter 即可，无需第三方库）：
+Windows 需要 Python 3.10 以上（带 tkinter），无需第三方库：
 
 ```
 python app.py
 ```
 
 或者双击 `run.bat`（用 pythonw 启动，不弹黑框）。
+
+## macOS 从源码运行
+
+Mac 版本支持任务清单、软件及网站监控、悬浮窗、专注提醒和自动保存。本次提供源码启动；上面的 `.exe` 下载和安装说明适用于 Windows。
+
+使用 Python 3.10+，先确认 Tk 可用，再创建项目虚拟环境并安装 Mac 依赖：
+
+```sh
+python3 -m tkinter
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python app.py
+```
+
+也可双击 `run.command`，它使用项目里的 `.venv/bin/python`。启动脚本会显示缺少 Tk 或依赖的安装提示。Homebrew Python 需要匹配版本的 Tk，例如 Python 3.14 使用 `brew install python-tk@3.14`；其他版本应安装相应的 `python-tk@版本号`。
+
+### 权限和检测范围
+
+- 启动已开启的监控、启用监控或选择网站时，若缺少**辅助功能**权限，会请求 macOS 显示系统授权提示。可点击系统提示中的“打开系统设置”，在 **隐私与安全性 → 辅助功能** 中授权本次启动所用的 Python 或终端；应用状态栏也会显示授权说明。应用不会额外自动打开设置；菜单 **监控权限 → 打开辅助功能设置** 随时可手动打开。
+- 监控开启时后台会重新检查授权；持续缺权期间仅发起一次系统授权请求，检测到授权成功后重置标记，之后撤销权限会再次请求系统提示。提示的实际显示由 macOS 控制。监控暂停时不因后台状态发起请求。若授权后仍显示未授权，退出后用相同 Python 和启动方式重开。缺权期间软件进程检测和任务清单仍可用。
+- 从菜单打开设置失败时，状态栏提示通过“监控权限”菜单重试，或手动进入上述辅助功能页面。
+- 通过 PyObjC 调用 AppKit 和辅助功能接口，仅读取应用名和窗口标题，无需屏幕录制、浏览器自动化或联网。
+- 支持 Safari、Chrome、Edge、Firefox、Brave、Opera、Vivaldi、Chromium、Arc。网站检测匹配各窗口当前标签页的**标题**；后台标签页、隐藏的应用及最小化窗口不触发网站提醒。标题不含所填关键词时不会命中，完整 URL 不保证出现在标题中。
+- 软件按可执行文件名匹配，例如 `safari`、`google chrome`、`steam`，也支持标题关键词。可从扫描列表直接选择应用；软件最小化或隐藏后仍按运行状态检测。
+- 部分应用不提供完整的辅助功能信息，状态栏会显示部分窗口读取失败；其他应用继续检测。
+
+### 数据与操作
+
+- 默认保存到 `~/Library/Application Support/ToDoList/todo.json`。目录不可写时明确报错。
+- 可用 `TODO_LIST_DATA=/绝对路径/todo.json .venv/bin/python app.py` 指定保存文件。
+- 首次启动会从项目的 `data/todo.json` 复制旧数据，已有目标文件时保留目标数据；迁移失败会报错。
+- 支持触控板滚动、Command+N 聚焦任务输入框、Command+Q 退出，以及悬浮窗右键 / Control 点击菜单。提醒使用系统提示音，响度由系统设置控制。
+- Mac 使用苹方中文字体、白色画布和原生圆角裁剪。悬浮窗采用非激活面板，拖动和勾选任务时保持当前应用在前台；点击 `▣` 或双击标题可打开主界面。置顶和不透明度保持可调；跨全屏空间的显示由 macOS 窗口管理决定。
+
+Windows 仍保留原有安装、便携数据路径和监控接口。CI 在 Windows / macOS 的 Python 3.10、3.12 上运行测试。Intel Mac 使用相同实现，当前本机验证环境为 Apple Silicon；实际验证范围见 `MACOS_VALIDATION.md`。
 
 ## 测试
 
@@ -161,7 +196,7 @@ python -m PyInstaller --noconfirm --clean ToDoList.spec
 
 - 网站是**靠浏览器窗口标题**判断的：切标签页时标题可能滞后一两秒；全屏视频、某些内置浏览器（如微信/QQ 内置页）不含关键词时不会触发。
 - 只有检测到"窗口可见且没被最小化"才算在用，最小化后不再提醒。
-- 提醒是应用自己的置顶窗口，不走系统通知，所以不会被 Windows 专注助手折叠，但也不会出现在通知中心里。
+- 提醒是应用自己的置顶窗口，不走系统通知，所以独立显示，但也不会出现在通知中心里。
 - 程序没签名，第一次运行会被 SmartScreen 拦一次；要彻底消掉需要买代码签名证书。
 - 开机自启只能在安装时勾选（写 HKCU 的 Run 键），便携版没有这个开关。
 

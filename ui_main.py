@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 from tkinter import ttk
 
@@ -33,6 +34,16 @@ class MainWindow(tk.Tk):
         self.refresh_all()
         self.protocol("WM_DELETE_WINDOW", self.app.quit)
         self.bind("<Control-n>", lambda _e: self.task_entry.focus_set())
+        if sys.platform == "darwin":
+            self.bind("<Command-n>", lambda _e: self.task_entry.focus_set())
+            self.bind("<Command-q>", lambda _e: self.app.quit())
+            self.createcommand("tk::mac::Quit", self.app.quit)
+            menu = tk.Menu(self)
+            permissions = tk.Menu(menu, tearoff=False)
+            permissions.add_command(label="打开辅助功能设置…", command=self.app.open_accessibility_settings)
+            permissions.add_command(label="检查授权状态…", command=self.app.ensure_accessibility)
+            menu.add_cascade(label="监控权限", menu=permissions)
+            self.configure(menu=menu)
         self.after(80, lambda: T.style_titlebar(self, dark=False))
         self.after(120, self._initial_focus)
 
@@ -430,14 +441,23 @@ class MainWindow(tk.Tk):
             self.toast("这个目标已经添加过了")
 
     def _scan(self) -> None:
+        try:
+            self._scan_available()
+        except Exception as exc:
+            from tkinter import messagebox
+            messagebox.showerror("扫描失败", str(exc), parent=self)
+
+    def _scan_available(self) -> None:
         kind = self._kind
         if kind == "software":
             items = monitor.running_programs()
             title = "选择要监控的程序"
             hint = "双击列表项即可填入，再点“添加”。"
         else:
+            if not self.app.ensure_accessibility():
+                return
             windows = [w for w in monitor.list_windows()
-                       if w.get("exe") in monitor.BROWSER_EXES and not w.get("minimized")]
+                       if w.get("exe") in monitor.BROWSER_EXES and not w.get("minimized") and not w.get("hidden")]
             items = [{"exe": w["exe"], "title": w["title"]} for w in windows]
             title = "选择浏览器中正在看的网站"
             hint = "列出当前所有浏览器窗口的标签页标题，双击取关键词。"
