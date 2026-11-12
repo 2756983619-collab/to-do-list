@@ -3,7 +3,7 @@
 
 #define AppName "To-Do List 专注清单"
 #define AppNameShort "To-Do List"
-#define AppVersion "1.3.3"
+#define AppVersion "1.4.0"
 #define AppExe "ToDoList-v" + AppVersion + ".exe"
 #define AppPublisher "To-Do List"
 #define SourceDir "..\dist\ToDoList-v" + AppVersion

@@ -46,6 +46,7 @@ class FloatWindow(tk.Toplevel):
         T.configure_overlay(self)
         self._drag_offset = None
         self._pinned = False
+        self._collapsed = bool(self.store.settings.get("float_collapsed", False))
         self._front_job = None
         self._hint_job = None
         self._pos = (self.winfo_screenwidth() - WIDTH - 40, 120)
@@ -102,6 +103,9 @@ class FloatWindow(tk.Toplevel):
                         fg=T.BORDER_STRONG, cursor="fleur")
         grip.pack(side="left", padx=(0, 8))
         self.grip = grip
+        self.collapse_btn = T.TriangleToggle(header, command=self._on_collapse_toggle,
+                                             bg=T.SURFACE, size=20)
+        self.collapse_btn.pack(side="left", padx=(0, 4))
         self.title_label = tk.Label(header, text="专注清单", font=T.get_font(11, "bold"),
                                     bg=T.SURFACE, fg=T.TEXT, cursor="fleur")
         self.title_label.pack(side="left")
@@ -132,16 +136,20 @@ class FloatWindow(tk.Toplevel):
             widget.bind("<ButtonRelease-1>", self._end_drag)
             widget.bind("<Double-Button-1>", lambda _e: self.app.show_main())
 
-        tk.Frame(self.inner, bg=T.BORDER, height=1).pack(fill="x")
+        self.header_sep = tk.Frame(self.inner, bg=T.BORDER, height=1)
+        self.header_sep.pack(fill="x")
 
-        # ---- task list
-        self.list_holder = tk.Frame(self.inner, bg=T.SURFACE)
+        # ---- task list（折叠时整块收起，只留标题栏和开关）
+        self.list_area = tk.Frame(self.inner, bg=T.SURFACE)
+        self.list_area.pack(fill="x")
+        self.list_holder = tk.Frame(self.list_area, bg=T.SURFACE)
         self.list_holder.pack(fill="x")
         self.scroller = T.ScrollFrame(self.list_holder, bg=T.SURFACE, max_height=320)
         self.scroller.pack(fill="both", expand=True)
         self.scroller.inner.configure(padx=0)
 
-        tk.Frame(self.inner, bg=T.BORDER, height=1).pack(fill="x", pady=(6, 0))
+        tk.Frame(self.list_area, bg=T.BORDER, height=1).pack(fill="x", pady=(6, 0))
+        self._list_packed = True
 
         # ---- footer: monitor switch + status
         footer = tk.Frame(self.inner, bg=T.SURFACE)
@@ -165,6 +173,7 @@ class FloatWindow(tk.Toplevel):
         # 先不占位，等 apply_status 有内容时再 pack，避免底部空白
 
         self._build_menu()
+        self._apply_collapsed()
         self.refresh_rows()
         self.refresh_monitor()
 
@@ -193,6 +202,36 @@ class FloatWindow(tk.Toplevel):
             self.menu.grab_release()
         return "break"
 
+    # ------------------------------------------------------------ collapse
+    def _on_collapse_toggle(self, expanded: bool) -> None:
+        self.set_collapsed(not expanded)
+
+    def set_collapsed(self, collapsed: bool, save: bool = True) -> None:
+        collapsed = bool(collapsed)
+        changed = collapsed != self._collapsed
+        self._collapsed = collapsed
+        if save and changed:
+            self.store.set_setting("float_collapsed", collapsed)
+        self._apply_collapsed()
+
+    def refresh_collapsed(self) -> None:
+        self._collapsed = bool(self.store.settings.get("float_collapsed", False))
+        self._apply_collapsed()
+
+    def _apply_collapsed(self) -> None:
+        try:
+            self.collapse_btn.set_expanded(not self._collapsed)
+            if self._collapsed:
+                if self._list_packed:
+                    self.list_area.pack_forget()
+                    self._list_packed = False
+            elif not self._list_packed:
+                self.list_area.pack(fill="x", after=self.header_sep)
+                self._list_packed = True
+        except tk.TclError:
+            return
+        self._schedule_size()
+
     # ------------------------------------------------------------ tasks
     def refresh_rows(self) -> None:
         for child in self.scroller.inner.winfo_children():
@@ -202,10 +241,26 @@ class FloatWindow(tk.Toplevel):
             tk.Label(self.scroller.inner, text="还没有任务，去主界面添加吧",
                      font=T.get_font(9), bg=T.SURFACE, fg=T.MUTED,
                      anchor="w", padx=2, pady=18).pack(fill="x")
-        for task in tasks:
-            self._make_row(task)
+        else:
+            daily = [task for task in tasks if task.get("kind") == "daily"]
+            temp = [task for task in tasks if task.get("kind") != "daily"]
+            if daily and temp:
+                self._section("每日任务")
+                for task in daily:
+                    self._make_row(task)
+                self._section("临时任务")
+                for task in temp:
+                    self._make_row(task)
+            else:
+                for task in tasks:
+                    self._make_row(task)
+        self._apply_collapsed()
         self._apply_size()
         self._schedule_size()
+
+    def _section(self, text: str) -> None:
+        tk.Label(self.scroller.inner, text=text, font=T.get_font(7), bg=T.SURFACE,
+                 fg=T.BORDER_STRONG, anchor="w", padx=2).pack(fill="x", pady=(5, 0))
 
     def _make_row(self, task: dict) -> None:
         done = bool(task.get("done"))

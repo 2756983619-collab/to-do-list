@@ -112,22 +112,42 @@ class MainWindow(tk.Tk):
         body = card.body
         body.grid_columnconfigure(0, weight=1)
         body.grid_rowconfigure(2, weight=1)
+        self.task_card_body = body
 
         top = tk.Frame(body, bg=T.SURFACE)
         top.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        self.tasks_collapse_btn = T.TriangleToggle(
+            top, command=self._on_tasks_collapse, bg=T.SURFACE, size=22)
+        self.tasks_collapse_btn.pack(side="left", padx=(0, 8))
         tk.Label(top, text="任务清单", font=T.get_font(13, "bold"), bg=T.SURFACE,
                  fg=T.TEXT).pack(side="left")
         self.counter_label = tk.Label(top, text="", font=T.get_font(9), bg=T.SURFACE,
                                       fg=T.MUTED)
         self.counter_label.pack(side="right")
+        self.calendar_btn = T.RoundedButton(
+            top, "📅 日历", self._open_calendar, height=30, padx=12, radius=9,
+            fill=T.SOFT, fg=T.TEXT_DIM, hover=T.SOFT_2, font=T.get_font(9), bg=T.SURFACE)
+        self.calendar_btn.pack(side="right", padx=(0, 12))
 
-        add_row = tk.Frame(body, bg=T.SURFACE)
-        add_row.grid(row=1, column=0, sticky="ew", pady=(0, 12))
-        self.task_entry = T.RoundedEntry(add_row, "写下一件要做的事，例如：整理实验数据",
+        self.task_add_holder = tk.Frame(body, bg=T.SURFACE)
+        self.task_add_holder.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        kind_box = tk.Frame(self.task_add_holder, bg=T.SURFACE)
+        kind_box.pack(side="left", padx=(0, 10))
+        self._task_kind = "temp"
+        self.task_kind_buttons = {}
+        for kind, label in (("daily", "每日"), ("temp", "临时")):
+            button = T.RoundedButton(kind_box, label, height=42, padx=13, radius=11,
+                                     fill=T.SOFT, fg=T.TEXT_DIM, hover=T.SOFT_2,
+                                     font=T.get_font(9, "bold"), bg=T.SURFACE)
+            button.pack(side="left", padx=(0, 6))
+            button._command = (lambda k=kind: self._set_task_kind(k))
+            self.task_kind_buttons[kind] = button
+        self.task_entry = T.RoundedEntry(self.task_add_holder,
+                                         "写下一件要做的事，例如：整理实验数据",
                                          height=42, radius=11, bg=T.SURFACE)
         self.task_entry.pack(side="left", fill="x", expand=True)
         self.task_entry.bind("<Return>", self._add_task)
-        T.RoundedButton(add_row, "添加", self._add_task, height=42, padx=22,
+        T.RoundedButton(self.task_add_holder, "添加", self._add_task, height=42, padx=22,
                         radius=11).pack(side="left", padx=(10, 0))
 
         self.task_scroller = T.ScrollFrame(body, bg=T.SURFACE)
@@ -135,13 +155,25 @@ class MainWindow(tk.Tk):
 
         bottom = tk.Frame(body, bg=T.SURFACE)
         bottom.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        self.task_bottom = bottom
         self.clear_btn = tk.Label(bottom, text="清除已完成", font=T.get_font(9),
                                   bg=T.SURFACE, fg=T.MUTED, cursor="hand2")
         self.clear_btn.pack(side="left")
         self.clear_btn.bind("<Button-1>", lambda _e: self._clear_done())
         T.attach_hover([self.clear_btn], T.SURFACE, T.RED)
-        tk.Label(bottom, text="回车添加 · 勾选后划线保留", font=T.get_font(8),
+        tk.Label(bottom, text="回车添加 · 每日任务次日自动重置", font=T.get_font(8),
                  bg=T.SURFACE, fg=T.BORDER_STRONG).pack(side="right")
+
+        # 折叠后显示的摘要（替代清单本体）
+        self.tasks_note = tk.Frame(body, bg=T.SURFACE)
+        self.tasks_note.grid(row=4, column=0, sticky="ew")
+        self.tasks_note_title = tk.Label(self.tasks_note, text="", font=T.get_font(12, "bold"),
+                                         bg=T.SURFACE, fg=T.TEXT)
+        self.tasks_note_title.pack(anchor="w")
+        self.tasks_note_sub = tk.Label(self.tasks_note, text="", font=T.get_font(9),
+                                       bg=T.SURFACE, fg=T.MUTED)
+        self.tasks_note_sub.pack(anchor="w", pady=(6, 0))
+        self.tasks_note.grid_remove()
 
     def _build_targets(self) -> None:
         card = T.Card(self, radius=16, pad=(18, 16))
@@ -273,15 +305,29 @@ class MainWindow(tk.Tk):
         for child in self.task_scroller.inner.winfo_children():
             child.destroy()
         tasks = self.store.tasks
-        if not tasks:
-            tk.Label(self.task_scroller.inner,
-                     text="还没有任务 —— 在上面输入框写下第一件事",
-                     font=T.get_font(9), bg=T.SURFACE, fg=T.MUTED, anchor="w",
-                     padx=10, pady=22).pack(fill="x")
-        for task in tasks:
-            self._make_task_row(task)
+        daily = [task for task in tasks if task.get("kind") == "daily"]
+        temp = [task for task in tasks if task.get("kind") != "daily"]
+        self._make_task_section("每日任务", daily, "还没有每日任务 —— 每天都会重新出现")
+        self._make_task_section("临时任务", temp, "还没有临时任务 —— 勾选后次日自动清除")
+
         stats = self.store.stats()
         self.counter_label.configure(text=f"{stats['done']} / {stats['total']} 已完成")
+        self._apply_tasks_collapsed(bool(self.store.settings.get("tasks_collapsed")))
+
+    def _make_task_section(self, title: str, items: list, empty_hint: str) -> None:
+        head = tk.Frame(self.task_scroller.inner, bg=T.SURFACE)
+        head.pack(fill="x", pady=(4, 1))
+        tk.Label(head, text=title, font=T.get_font(8, "bold"), bg=T.SURFACE,
+                 fg=T.MUTED).pack(side="left", padx=(10, 0))
+        tk.Label(head, text=str(len(items)), font=T.get_font(8), bg=T.SURFACE,
+                 fg=T.BORDER_STRONG).pack(side="left", padx=(6, 0))
+        if not items:
+            tk.Label(self.task_scroller.inner, text=empty_hint, font=T.get_font(9),
+                     bg=T.SURFACE, fg=T.MUTED, anchor="w", padx=10,
+                     pady=8).pack(fill="x")
+            return
+        for task in items:
+            self._make_task_row(task)
 
     def _bind_row_hover(self, row, widgets, normal=T.SURFACE, hover=T.SOFT):
         """行悬停时整行染一层浅底，让列表更有反馈感。"""
@@ -383,6 +429,7 @@ class MainWindow(tk.Tk):
         if hasattr(self, "opacity_value"):
             self.opacity_value.configure(text=f"{int(round(opacity))}%")
         self._set_kind(self._kind, refresh=False)
+        self._set_task_kind(getattr(self, "_task_kind", "temp"))
 
     def _update_hint(self) -> None:
         if self._kind == "website":
@@ -392,13 +439,70 @@ class MainWindow(tk.Tk):
         self.hint_label.configure(text=text)
 
     # ------------------------------------------------------------ tasks actions
+    def _set_task_kind(self, kind: str) -> None:
+        self._task_kind = kind if kind in ("temp", "daily") else "temp"
+        for key, button in self.task_kind_buttons.items():
+            if key == self._task_kind:
+                button.set_style(fill=T.ACCENT_SOFT, fg=T.ACCENT, hover=T.ACCENT_SOFT)
+            else:
+                button.set_style(fill=T.SOFT, fg=T.TEXT_DIM, hover=T.SOFT_2)
+        if hasattr(self.task_entry, "set_placeholder"):
+            self.task_entry.set_placeholder(
+                "明天也要做的事，例如：背 50 个单词" if self._task_kind == "daily"
+                else "写下一件要做的事，例如：整理实验数据")
+
+    def _on_tasks_collapse(self, expanded: bool) -> None:
+        if self._loading:
+            return
+        self.store.set_setting("tasks_collapsed", not expanded, notify=False)
+
+    def _apply_tasks_collapsed(self, collapsed: bool) -> None:
+        self.tasks_collapse_btn.set_expanded(not collapsed)
+        if collapsed:
+            self.task_add_holder.grid_remove()
+            self.task_scroller.grid_remove()
+            self.task_bottom.grid_remove()
+            self.tasks_note.grid()
+            self.task_card_body.grid_rowconfigure(2, weight=0)
+            self._update_tasks_note()
+        else:
+            self.tasks_note.grid_remove()
+            self.task_bottom.grid()
+            self.task_add_holder.grid()
+            self.task_scroller.grid()
+            self.task_card_body.grid_rowconfigure(2, weight=1)
+
+    def _update_tasks_note(self) -> None:
+        tasks = self.store.tasks
+        total = len(tasks)
+        done = sum(1 for task in tasks if task.get("done"))
+        daily = sum(1 for task in tasks if task.get("kind") == "daily")
+        temp = total - daily
+        if total:
+            self.tasks_note_title.configure(text=f"{total} 个任务 · {done} 个已完成")
+            self.tasks_note_sub.configure(
+                text=f"每日 {daily} 个 · 临时 {temp} 个　点左上角 ▾ 展开清单")
+        else:
+            self.tasks_note_title.configure(text="还没有任务")
+            self.tasks_note_sub.configure(text="点左上角 ▾ 展开，开始写第一件事")
+
+    def _open_calendar(self) -> None:
+        win = getattr(self, "_calendar", None)
+        if win is not None and win.winfo_exists():
+            win.deiconify()
+            win.lift()
+            win.focus_force()
+            return
+        from ui_calendar import CalendarWindow
+        self._calendar = CalendarWindow(self.app, self)
+
     def _add_task(self, _event=None):
         text = self.task_entry.get_value() if hasattr(self.task_entry, "get_value") \
             else self.task_entry.get().strip()
         if not text:
             self.toast("先写点内容吧")
             return
-        self.store.add_task(text)
+        self.store.add_task(text, kind=self._task_kind)
         if hasattr(self.task_entry, "reset"):
             self.task_entry.reset()
         else:

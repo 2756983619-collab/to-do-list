@@ -593,7 +593,61 @@ class CheckBox(tk.Canvas):
             self._command(self._value)
 
 
-# ------------------------------------------------------------------ 开关
+# ------------------------------------------------------------------ 折叠三角
+class TriangleToggle(tk.Canvas):
+    """上下三角折叠按钮：展开时显示 ▲（点一下收起），收起时显示 ▼（点一下展开）。"""
+
+    def __init__(self, master, command=None, *, size=24, bg=None, fg=TEXT_DIM,
+                 accent=ACCENT, expanded=True):
+        super().__init__(master, width=size, height=size, bg=bg or parent_bg(master),
+                         bd=0, highlightthickness=0, cursor="hand2")
+        self._size = size
+        self._fg = fg
+        self._accent = accent
+        self._expanded = bool(expanded)
+        self._command = command
+        self._hover = False
+        self._paint()
+        self.bind("<Button-1>", self._on_click)
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+
+    def _paint(self):
+        self.delete("all")
+        size = self._size
+        cx = size / 2.0
+        cy = size / 2.0
+        half_w = size * 0.26
+        half_h = size * 0.17
+        color = self._accent if self._hover else self._fg
+        if self._expanded:
+            points = (cx - half_w, cy + half_h, cx + half_w, cy + half_h, cx, cy - half_h)
+        else:
+            points = (cx - half_w, cy - half_h, cx + half_w, cy - half_h, cx, cy + half_h)
+        self.create_polygon(points, fill=color, outline="")
+
+    def _on_enter(self, _event=None):
+        self._hover = True
+        self._paint()
+
+    def _on_leave(self, _event=None):
+        self._hover = False
+        self._paint()
+
+    def _on_click(self, _event=None):
+        self._expanded = not self._expanded
+        self._paint()
+        if self._command is not None:
+            self._command(self._expanded)
+
+    def set_expanded(self, value: bool) -> None:
+        self._expanded = bool(value)
+        self._paint()
+
+    def get_expanded(self) -> bool:
+        return self._expanded
+
+
 class ToggleSwitch(tk.Canvas):
     def __init__(self, master, value=False, command=None, *, bg=None, width=46,
                  height=26, on_color=ACCENT):

@@ -33,7 +33,7 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "ToDoList"
-APP_VERSION = "1.3.3"
+APP_VERSION = "1.4.0"
 
 
 def _writable(folder: str) -> bool:
@@ -140,6 +140,7 @@ class App:
         self._geometry_job = None
         self._permission_prompted = False
         self._permission_settings_error = False
+        self._day = time.strftime("%Y-%m-%d")
 
         self.root = MainWindow(self)
         self.float = FloatWindow(self)
@@ -181,6 +182,9 @@ class App:
         self.store.add_listener(self._on_store_change)
         self._pump_job = self.root.after(150, self._pump)
         self._visibility_job = self.root.after(600, self._apply_float_visibility)
+        # 启动先滚动一次：昨天勾掉的临时任务清掉、每日任务复位、到期的日历事项入清单
+        self.sync_calendar(quiet=True)
+        self._day_job = self.root.after(60000, self._check_day)
         self._schedule_geometry_save()
         self.root.deiconify()
         self.root.lift()
@@ -417,6 +421,44 @@ class App:
         except Exception:
             pass
 
+    # ------------------------------------------------------------ 日期 / 日历
+    def sync_calendar(self, quiet: bool = False) -> None:
+        """跨天滚动 + 把到期（含过期）的日历事项变成任务。"""
+        try:
+            result = self.store.rollover()
+            added = self.store.pull_due_events()
+        except Exception as exc:  # 日历出错不能连累主程序
+            print(f"[calendar] sync failed: {exc!r}")
+            return
+        parts = []
+        if result.get("reset"):
+            parts.append(f"{result['reset']} 个每日任务已重置")
+        if result.get("removed"):
+            parts.append(f"{result['removed']} 个临时任务已清除")
+        if added:
+            parts.append(f"{added} 个日历事项已加入清单")
+        if not parts:
+            return
+        message = " · ".join(parts)
+        if not quiet:
+            self.toast_main(message)
+        if self.store.settings.get("float_visible"):
+            try:
+                self.float.flash_hint(message, 5000)
+            except tk.TclError:
+                pass
+
+    def _check_day(self) -> None:
+        """每分钟看一眼是否跨天；跨天就滚动任务、拉取日历事项。"""
+        today = time.strftime("%Y-%m-%d")
+        if today != getattr(self, "_day", today):
+            self._day = today
+            self.sync_calendar()
+        try:
+            self._day_job = self.root.after(60000, self._check_day)
+        except tk.TclError:
+            self._day_job = None
+
     # ------------------------------------------------------------ monitor events
     def _pump(self) -> None:
         try:
@@ -469,11 +511,12 @@ class App:
             if reason == "tasks_text":
                 self.float.refresh_rows()
                 return
-            if reason in ("tasks", "targets", "settings"):
+            if reason in ("tasks", "targets", "settings", "events"):
                 self.root.refresh_all()
                 self.float.refresh_rows()
                 self.float.refresh_monitor()
                 self.float.refresh_pin()
+                self.float.refresh_collapsed()
                 self.refresh_status()
             if reason == "settings":
                 self._apply_float_visibility()
@@ -496,7 +539,8 @@ class App:
     # ------------------------------------------------------------ teardown
     def quit(self) -> None:
         for job in (getattr(self, "_geometry_job", None), getattr(self, "_pump_job", None),
-                    getattr(self, "_visibility_job", None), getattr(self, "_tray_job", None)):
+                    getattr(self, "_visibility_job", None), getattr(self, "_tray_job", None),
+                    getattr(self, "_day_job", None)):
             try:
                 if job is not None:
                     self.root.after_cancel(job)
@@ -506,6 +550,7 @@ class App:
         self._pump_job = None
         self._visibility_job = None
         self._tray_job = None
+        self._day_job = None
         try:
             if self.root.state() == "normal":
                 self.store.set_setting("main_geometry", self.root.geometry(), notify=False)
