@@ -21,6 +21,8 @@ DEFAULT_SETTINGS = {
     "last_callout": 0.0,       # 上次提醒时间戳（仅作展示）
     "tasks_collapsed": False,  # 主界面任务清单是否折叠
     "float_collapsed": False,  # 悬浮窗任务清单是否折叠
+    "daily_collapsed": False,  # 主界面"每日任务"分组是否折叠
+    "temp_collapsed": False,   # 主界面"临时任务"分组是否折叠
     "last_rollover": None,     # 上次跨天滚动执行的日期（YYYY-MM-DD）
 }
 
@@ -94,6 +96,7 @@ class Store:
                 "done": done,
                 "done_on": done_on,
                 "kind": kind,
+                "pinned": bool(item.get("pinned", False)),
                 "created": float(item.get("created") or time.time()),
             })
 
@@ -128,6 +131,8 @@ class Store:
         settings["float_pinned"] = bool(settings.get("float_pinned", False))
         settings["tasks_collapsed"] = bool(settings.get("tasks_collapsed", False))
         settings["float_collapsed"] = bool(settings.get("float_collapsed", False))
+        settings["daily_collapsed"] = bool(settings.get("daily_collapsed", False))
+        settings["temp_collapsed"] = bool(settings.get("temp_collapsed", False))
         try:
             settings["interval"] = max(10, min(3600, int(settings.get("interval") or 90)))
         except (TypeError, ValueError):
@@ -230,6 +235,7 @@ class Store:
             "done": False,
             "done_on": None,
             "kind": kind,
+            "pinned": False,
             "created": time.time(),
         }
         with self.lock:
@@ -255,6 +261,18 @@ class Store:
                 return
             task["kind"] = kind
         self._changed("tasks")
+
+    def toggle_pin(self, task_id: str) -> None:
+        """把任务钉在悬浮窗上：折叠悬浮窗时这些任务仍然显示。"""
+        with self.lock:
+            task = self._find(self.data["tasks"], task_id)
+            if task is None:
+                return
+            task["pinned"] = not bool(task.get("pinned"))
+        self._changed("tasks")
+
+    def pinned_tasks(self) -> list:
+        return [task for task in self.data["tasks"] if task.get("pinned")]
 
     def set_task_text(self, task_id: str, text: str) -> None:
         text = (text or "").strip()

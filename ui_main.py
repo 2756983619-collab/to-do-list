@@ -307,20 +307,29 @@ class MainWindow(tk.Tk):
         tasks = self.store.tasks
         daily = [task for task in tasks if task.get("kind") == "daily"]
         temp = [task for task in tasks if task.get("kind") != "daily"]
-        self._make_task_section("每日任务", daily, "还没有每日任务 —— 每天都会重新出现")
-        self._make_task_section("临时任务", temp, "还没有临时任务 —— 勾选后次日自动清除")
+        self._make_task_section("每日任务", daily, "还没有每日任务 —— 每天都会重新出现", "daily")
+        self._make_task_section("临时任务", temp, "还没有临时任务 —— 勾选后次日自动清除", "temp")
 
         stats = self.store.stats()
         self.counter_label.configure(text=f"{stats['done']} / {stats['total']} 已完成")
         self._apply_tasks_collapsed(bool(self.store.settings.get("tasks_collapsed")))
 
-    def _make_task_section(self, title: str, items: list, empty_hint: str) -> None:
+    def _make_task_section(self, title: str, items: list, empty_hint: str, key: str) -> None:
+        """一组任务：标题行自带折叠三角，可以和另一组分别收起。"""
+        collapsed = bool(self.store.settings.get(f"{key}_collapsed"))
         head = tk.Frame(self.task_scroller.inner, bg=T.SURFACE)
         head.pack(fill="x", pady=(4, 1))
+        T.TriangleToggle(
+            head, size=16, bg=T.SURFACE, expanded=not collapsed,
+            command=lambda expanded, k=key: self._on_section_collapse(k, expanded),
+        ).pack(side="left", padx=(2, 2))
         tk.Label(head, text=title, font=T.get_font(8, "bold"), bg=T.SURFACE,
-                 fg=T.MUTED).pack(side="left", padx=(10, 0))
-        tk.Label(head, text=str(len(items)), font=T.get_font(8), bg=T.SURFACE,
+                 fg=T.MUTED).pack(side="left", padx=(2, 0))
+        count_text = f"{len(items)} 个" + ("（已折叠）" if collapsed and items else "")
+        tk.Label(head, text=count_text, font=T.get_font(8), bg=T.SURFACE,
                  fg=T.BORDER_STRONG).pack(side="left", padx=(6, 0))
+        if collapsed:
+            return
         if not items:
             tk.Label(self.task_scroller.inner, text=empty_hint, font=T.get_font(9),
                      bg=T.SURFACE, fg=T.MUTED, anchor="w", padx=10,
@@ -328,6 +337,12 @@ class MainWindow(tk.Tk):
             return
         for task in items:
             self._make_task_row(task)
+
+    def _on_section_collapse(self, key: str, expanded: bool) -> None:
+        if self._loading:
+            return
+        self.store.set_setting(f"{key}_collapsed", not expanded, notify=False)
+        self._refresh_tasks()
 
     def _bind_row_hover(self, row, widgets, normal=T.SURFACE, hover=T.SOFT):
         """行悬停时整行染一层浅底，让列表更有反馈感。"""
@@ -373,7 +388,12 @@ class MainWindow(tk.Tk):
         delete.pack(side="right", padx=(4, 2))
         delete.bind("<Button-1>", lambda _e, tid=task["id"]: self.store.delete_task(tid))
         T.attach_hover([delete], T.SURFACE, T.RED)
-        self._bind_row_hover(row, [entry, delete])
+
+        pin = T.PinButton(row, bg=T.SURFACE, size=18,
+                          pinned=bool(task.get("pinned")),
+                          command=lambda _value, tid=task["id"]: self.store.toggle_pin(tid))
+        pin.pack(side="right", padx=(2, 0))
+        self._bind_row_hover(row, [entry, delete, pin])
 
     def _refresh_targets(self) -> None:
         for child in self.target_scroller.inner.winfo_children():

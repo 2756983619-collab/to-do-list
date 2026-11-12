@@ -49,6 +49,26 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(removed, 1)
         self.assertEqual(store_module.Store(self.path).tasks, [])
 
+    def test_task_pin_toggles_and_persists(self):
+        """钉住标记：默认不钉，可来回切，写入磁盘后还在。"""
+        task_id = self.store.add_task("盯住这一条")
+        self.assertFalse(self.store.tasks[0]["pinned"])
+        self.assertEqual(self.store.pinned_tasks(), [])
+
+        self.store.toggle_pin(task_id)
+        self.assertTrue(self.store.tasks[0]["pinned"])
+        self.assertEqual([task["id"] for task in self.store.pinned_tasks()], [task_id])
+        self.assertTrue(store_module.Store(self.path).tasks[0]["pinned"])
+
+        self.store.toggle_pin(task_id)
+        self.assertFalse(store_module.Store(self.path).tasks[0]["pinned"])
+
+    def test_task_kind_defaults_to_temp(self):
+        self.store.add_task("默认临时")
+        self.store.add_task("每日一条", kind="daily")
+        kinds = [task["kind"] for task in self.store.tasks]
+        self.assertEqual(kinds, ["temp", "daily"])
+
     def test_targets_deduplicate(self):
         self.assertTrue(self.store.add_target("website", "B站", "bilibili"))
         self.assertFalse(self.store.add_target("website", "B站 2", "BILIBILI"))

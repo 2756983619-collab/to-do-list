@@ -33,7 +33,7 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "ToDoList"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 
 
 def _writable(folder: str) -> bool:
@@ -210,9 +210,12 @@ class App:
         self.root.withdraw()
 
     def close_main(self) -> None:
-        """关闭主窗口 ≠ 退出：收起到后台，悬浮窗、监控、托盘图标继续工作。"""
-        if not self.store.settings.get("float_visible", True):
-            self.store.set_setting("float_visible", True)
+        """关闭主窗口 ≠ 退出：收起到后台，悬浮窗、监控、托盘图标继续工作。
+
+        如果用户已经把悬浮窗收起来了，这里**不再**把它叫出来：只留托盘图标，
+        程序继续在后台跑，用户可以从托盘唤回主界面或退出。
+        """
+        float_visible = bool(self.store.settings.get("float_visible", True))
         if self.tray_ready():
             self.hide_main()
             hint = "主界面已收起到后台 · 点 ▣ 或托盘图标可打开"
@@ -223,11 +226,18 @@ class App:
             except tk.TclError:
                 self.hide_main()
             hint = "主界面已最小化 · 点任务栏按钮可打开（托盘图标没挂上）"
-        try:
-            self.float.show()
-            self.float.flash_hint(hint, 6000)
-        except tk.TclError:
-            pass
+        if float_visible:
+            try:
+                self.float.show()
+                self.float.flash_hint(hint, 6000)
+            except tk.TclError:
+                pass
+        elif self.tray_ready():
+            try:
+                self.tray.show_balloon("To-Do List 仍在后台运行",
+                                       "右键托盘图标可以打开主界面或退出程序。")
+            except Exception:
+                pass
 
     def show_float(self) -> None:
         self.float.show()

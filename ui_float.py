@@ -218,16 +218,20 @@ class FloatWindow(tk.Toplevel):
         self._collapsed = bool(self.store.settings.get("float_collapsed", False))
         self._apply_collapsed()
 
+    def _has_pinned(self) -> bool:
+        return any(task.get("pinned") for task in self.store.tasks)
+
     def _apply_collapsed(self) -> None:
+        # 折叠时只要还有钉住的任务，列表就继续显示（只显示钉住的那些）
+        show_list = (not self._collapsed) or self._has_pinned()
         try:
             self.collapse_btn.set_expanded(not self._collapsed)
-            if self._collapsed:
-                if self._list_packed:
-                    self.list_area.pack_forget()
-                    self._list_packed = False
-            elif not self._list_packed:
+            if show_list and not self._list_packed:
                 self.list_area.pack(fill="x", after=self.header_sep)
                 self._list_packed = True
+            elif not show_list and self._list_packed:
+                self.list_area.pack_forget()
+                self._list_packed = False
         except tk.TclError:
             return
         self._schedule_size()
@@ -241,6 +245,15 @@ class FloatWindow(tk.Toplevel):
             tk.Label(self.scroller.inner, text="还没有任务，去主界面添加吧",
                      font=T.get_font(9), bg=T.SURFACE, fg=T.MUTED,
                      anchor="w", padx=2, pady=18).pack(fill="x")
+        elif self._collapsed:
+            pinned = [task for task in tasks if task.get("pinned")]
+            if pinned:
+                for task in pinned:
+                    self._make_row(task)
+            else:
+                tk.Label(self.scroller.inner, text="折叠中 · 没有钉住的任务",
+                         font=T.get_font(8), bg=T.SURFACE, fg=T.MUTED,
+                         anchor="w", padx=2, pady=10).pack(fill="x")
         else:
             daily = [task for task in tasks if task.get("kind") == "daily"]
             temp = [task for task in tasks if task.get("kind") != "daily"]
@@ -264,18 +277,28 @@ class FloatWindow(tk.Toplevel):
 
     def _make_row(self, task: dict) -> None:
         done = bool(task.get("done"))
+        pinned = bool(task.get("pinned"))
         row = tk.Frame(self.scroller.inner, bg=T.SURFACE)
         row.pack(fill="x", pady=1)
         box = T.CheckBox(row, value=done, bg=T.SURFACE, size=18,
                          command=lambda _v, tid=task["id"]: self.store.toggle_task(tid))
         box.pack(side="left", padx=(2, 10), pady=7)
+
+        pin = T.PinButton(row, bg=T.SURFACE, size=18, pinned=pinned,
+                          command=lambda _v, tid=task["id"]: self._on_pin_click(tid))
+        pin.pack(side="right", padx=(4, 2))
+
         label = tk.Label(row, text=task["text"], font=T.get_font(10, overstrike=done),
                          bg=T.SURFACE, fg=T.MUTED if done else T.TEXT, anchor="w",
-                         justify="left", wraplength=WIDTH - 2 * RADIUS - 42,
+                         justify="left", wraplength=WIDTH - 2 * RADIUS - 42 - 26,
                          cursor="hand2")
         label.pack(side="left", fill="x", expand=True, pady=6)
         label.bind("<Button-1>", lambda _e, tid=task["id"]: self.store.toggle_task(tid))
         T.attach_hover([row, label], T.SURFACE, T.SOFT)
+
+    def _on_pin_click(self, task_id: str) -> None:
+        self.store.toggle_pin(task_id)
+        self.refresh_rows()
 
     def _apply_size(self) -> None:
         self.scroller.refresh()

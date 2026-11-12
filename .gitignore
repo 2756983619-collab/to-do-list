@@ -23,3 +23,8 @@ env/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# 本地调试输出
+_e.txt
+_o.txt
+_*.log

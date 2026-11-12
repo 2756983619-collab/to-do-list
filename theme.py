@@ -634,11 +634,81 @@ class TriangleToggle(tk.Canvas):
         self._hover = False
         self._paint()
 
+    def set_expanded(self, expanded):
+        expanded = bool(expanded)
+        if expanded != self._expanded:
+            self._expanded = expanded
+            self._paint()
+
+    def get_expanded(self):
+        return self._expanded
+
     def _on_click(self, _event=None):
         self._expanded = not self._expanded
         self._paint()
         if self._command is not None:
             self._command(self._expanded)
+
+
+class PinButton(tk.Canvas):
+    """图钉按钮：钉住的任务在悬浮窗折叠时仍然显示。"""
+
+    def __init__(self, master, command=None, *, size=20, bg=None, fg=MUTED,
+                 active=ACCENT, pinned=False):
+        super().__init__(master, width=size, height=size, bg=bg or parent_bg(master),
+                         bd=0, highlightthickness=0, cursor="hand2")
+        self._size = size
+        self._fg = fg
+        self._active = active
+        self._pinned = bool(pinned)
+        self._command = command
+        self._hover = False
+        self._paint()
+        self.bind("<Button-1>", self._on_click)
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+
+    def _paint(self):
+        self.delete("all")
+        size = float(self._size)
+        cx, cy = size / 2.0, size / 2.0
+        if self._pinned:
+            color = self._active
+        elif self._hover:
+            color = ACCENT
+        else:
+            color = self._fg
+        scale = size / 20.0
+        # 圆头 + 针杆 + 底座（1 倍尺寸下也认得出是图钉）
+        self.create_oval(cx - 4.4 * scale, cy - 8.2 * scale,
+                         cx + 4.4 * scale, cy + 0.6 * scale,
+                         fill=color, outline="")
+        self.create_line(cx, cy + 0.6 * scale, cx, cy + 4.6 * scale,
+                         fill=color, width=max(2, round(2.4 * scale)), capstyle=tk.ROUND)
+        self.create_line(cx - 4.4 * scale, cy + 6.4 * scale,
+                         cx + 4.4 * scale, cy + 6.4 * scale,
+                         fill=color, width=max(2, round(2.4 * scale)), capstyle=tk.ROUND)
+
+    def set_pinned(self, pinned):
+        self._pinned = bool(pinned)
+        self._paint()
+
+    def get_pinned(self):
+        return self._pinned
+
+    def _on_enter(self, _event=None):
+        self._hover = True
+        self._paint()
+
+    def _on_leave(self, _event=None):
+        self._hover = False
+        self._paint()
+
+    def _on_click(self, _event=None):
+        self._pinned = not self._pinned
+        self._paint()
+        if self._command is not None:
+            self._command(self._pinned)
 
     def set_expanded(self, value: bool) -> None:
         self._expanded = bool(value)

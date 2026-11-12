@@ -108,6 +108,58 @@ class DesktopTests(unittest.TestCase):
                 instance.quit()
                 instance.worker.join(timeout=2)
 
+    def test_close_main_keeps_hidden_float_hidden(self):
+        """先关悬浮窗、再关主界面：不应该把悬浮窗重新弹出来。"""
+        errors = []
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'TODO_LIST_DATA': os.path.join(folder, 'todo.json')}), patch.object(tk.Tk, 'report_callback_exception', lambda self, kind, value, trace: errors.append(str(value))):
+            instance = app.App()
+            try:
+                instance.root.update()
+                instance.hide_float()
+                instance.root.update()
+                self.assertFalse(instance.store.settings['float_visible'])
+
+                instance.close_main()
+                instance.root.update()
+                self.assertEqual(instance.root.state(), 'withdrawn')
+                self.assertFalse(instance.store.settings['float_visible'])
+                self.assertEqual(instance.float.state(), 'withdrawn')
+                self.assertEqual(errors, [])
+            finally:
+                instance.quit()
+                instance.worker.join(timeout=2)
+
+    def test_float_pin_survives_collapse(self):
+        """悬浮窗折叠后只剩钉住的任务。"""
+        errors = []
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'TODO_LIST_DATA': os.path.join(folder, 'todo.json')}), patch.object(tk.Tk, 'report_callback_exception', lambda self, kind, value, trace: errors.append(str(value))):
+            instance = app.App()
+            try:
+                instance.root.update()
+                keep = instance.store.add_task("钉住的任务")
+                instance.store.add_task("普通任务")
+                instance.store.toggle_pin(keep)
+                instance.root.update()
+
+                instance.float.set_collapsed(True)
+                instance.root.update()
+
+                def collect(widget):
+                    texts = []
+                    for child in widget.winfo_children():
+                        if child.winfo_class() == 'Label':
+                            texts.append(child.cget('text'))
+                        elif child.winfo_class() == 'Frame':
+                            texts.extend(collect(child))
+                    return texts
+
+                labels = collect(instance.float.scroller.inner)
+                self.assertEqual(labels, ['钉住的任务'])
+                self.assertEqual(errors, [])
+            finally:
+                instance.quit()
+                instance.worker.join(timeout=2)
+
     def test_tray_icon_and_menu_commands(self):
         """托盘图标：菜单命令要能在主线程里正确落到窗口/设置上。"""
         import tray
