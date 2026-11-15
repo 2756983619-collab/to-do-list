@@ -140,7 +140,6 @@ class App:
         self._geometry_job = None
         self._permission_prompted = False
         self._permission_settings_error = False
-        self._day = time.strftime("%Y-%m-%d")
 
         self.root = MainWindow(self)
         self.float = FloatWindow(self)
@@ -330,7 +329,7 @@ class App:
         else:
             windows = int(self.last_status.get("windows") or 0)
             text, color = f"监控中 · 正在检测 {windows} 个窗口", T.GREEN
-        if self.store.last_error:
+        if getattr(self.store, "calendar_error", None) or self.store.last_error:
             text, color = "保存失败 · 请检查数据目录写入权限", T.RED
         signature = (text, color, enabled)
         if signature == getattr(self, "_status_signature", None):
@@ -435,18 +434,20 @@ class App:
     def sync_calendar(self, quiet: bool = False) -> None:
         """跨天滚动 + 把到期（含过期）的日历事项变成任务。"""
         try:
-            result = self.store.rollover()
-            added = self.store.pull_due_events()
+            result = self.store.sync_calendar()
         except Exception as exc:  # 日历出错不能连累主程序
             print(f"[calendar] sync failed: {exc!r}")
+            return
+        self.refresh_status()
+        if result is None:
             return
         parts = []
         if result.get("reset"):
             parts.append(f"{result['reset']} 个每日任务已重置")
         if result.get("removed"):
             parts.append(f"{result['removed']} 个临时任务已清除")
-        if added:
-            parts.append(f"{added} 个日历事项已加入清单")
+        if result.get("added"):
+            parts.append(f"{result['added']} 个日历事项已加入清单")
         if not parts:
             return
         message = " · ".join(parts)
@@ -459,15 +460,14 @@ class App:
                 pass
 
     def _check_day(self) -> None:
-        """每分钟看一眼是否跨天；跨天就滚动任务、拉取日历事项。"""
-        today = time.strftime("%Y-%m-%d")
-        if today != getattr(self, "_day", today):
-            self._day = today
-            self.sync_calendar()
+        """每分钟整理日期，同时重试启动、跨天或同日转入的失败。"""
         try:
-            self._day_job = self.root.after(60000, self._check_day)
-        except tk.TclError:
-            self._day_job = None
+            self.sync_calendar()
+        finally:
+            try:
+                self._day_job = self.root.after(60000, self._check_day)
+            except tk.TclError:
+                self._day_job = None
 
     # ------------------------------------------------------------ monitor events
     def _pump(self) -> None:

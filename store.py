@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import threading
@@ -45,6 +46,7 @@ class Store:
         self.lock = threading.RLock()
         self._listeners = []
         self.last_error = None
+        self.calendar_error = None
         self.data = {"version": 1, "tasks": [], "targets": [], "settings": dict(DEFAULT_SETTINGS)}
         self.load()
 
@@ -180,27 +182,29 @@ class Store:
         except OSError:
             pass
 
-    def save(self) -> None:
+    def save(self) -> bool:
         with self.lock:
-            snapshot = {
-                "version": 2,
-                "tasks": [dict(task) for task in self.data["tasks"]],
-                "targets": [dict(target) for target in self.data["targets"]],
-                "events": [dict(event) for event in self.data["events"]],
-                "settings": dict(self.data["settings"]),
-            }
+            return self._write_data(self.data)
+
+    def _write_data(self, data: dict) -> bool:
+        """调用方持锁；写入成功后才能发布日期整理的新状态。"""
         folder = os.path.dirname(os.path.abspath(self.path))
+        tmp = self.path + ".tmp"
         try:
             os.makedirs(folder, exist_ok=True)
-            tmp = self.path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as handle:
-                json.dump(snapshot, handle, ensure_ascii=False, indent=2)
+                json.dump(data, handle, ensure_ascii=False, indent=2)
             os.replace(tmp, self.path)
             self.last_error = None
+            return True
         except OSError as exc:
-            # 保存失败要留痕，否则用户会以为"任务自己消失了"
-            self.last_error = f"{exc}"
+            self.last_error = str(exc)
             print(f"[store] save failed for {self.path}: {exc!r}")
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return False
 
     # ------------------------------------------------------------ listeners
     def add_listener(self, callback) -> None:
@@ -224,12 +228,9 @@ class Store:
         return None
 
     # ------------------------------------------------------------ tasks
-    def add_task(self, text: str, kind: str = "temp"):
-        text = (text or "").strip()
-        if not text:
-            return None
-        kind = kind if kind in TASK_KINDS else "temp"
-        task = {
+    @staticmethod
+    def _new_task(text: str, kind: str) -> dict:
+        return {
             "id": _new_id(),
             "text": text,
             "done": False,
@@ -238,6 +239,13 @@ class Store:
             "pinned": False,
             "created": time.time(),
         }
+
+    def add_task(self, text: str, kind: str = "temp"):
+        text = (text or "").strip()
+        if not text:
+            return None
+        kind = kind if kind in TASK_KINDS else "temp"
+        task = self._new_task(text, kind)
         with self.lock:
             self.data["tasks"].append(task)
         self._changed("tasks")
@@ -305,40 +313,48 @@ class Store:
         self._changed("tasks")
         return removed
 
-    # ------------------------------------------------------------ 跨天滚动
-    def rollover(self, today: str | None = None) -> dict:
-        """跨天滚动：每日任务重新出现，已完成的临时任务自动清除。
+    # ------------------------------------------------------------ 日期整理
+    def sync_calendar(self, today: str | None = None) -> dict | None:
+        """一次完成复位、清除和到期转入；保存失败时保留原状态并返回 None。
 
-        返回 {"date": 今天, "reset": n, "removed": n}。没有变化也记录执行日期。
+        成功返回日期及 reset / removed / added 数量。同日可重复调用；
+        没有变化时跳过写入，仍会检查同日新增的到期事项。
         """
         today = today or today_str()
-        reset = 0
-        removed = 0
+        result = {"date": today, "reset": 0, "removed": 0, "added": 0}
         with self.lock:
+            candidate = copy.deepcopy(self.data)
             kept = []
-            for task in self.data["tasks"]:
-                if not task.get("done"):
-                    kept.append(task)
-                    continue
+            for task in candidate["tasks"]:
+                # 兼容旧任务：缺少完成日期时继续保留完成状态。
                 done_on = task.get("done_on") or today
-                if done_on >= today:
+                if not task.get("done") or done_on >= today:
                     kept.append(task)
-                    continue
-                if task.get("kind") == "daily":
+                elif task.get("kind") == "daily":
                     task["done"] = False
                     task["done_on"] = None
-                    reset += 1
                     kept.append(task)
+                    result["reset"] += 1
                 else:
-                    removed += 1
-            if reset or removed:
-                self.data["tasks"] = kept
-            self.data["settings"]["last_rollover"] = today
-        if reset or removed:
-            self._changed("tasks")
-        else:
-            self.save()
-        return {"date": today, "reset": reset, "removed": removed}
+                    result["removed"] += 1
+            for event in candidate["events"]:
+                if event.get("pulled") or event.get("date", "") > today:
+                    continue
+                kept.append(self._new_task(event["text"], event.get("kind", "temp")))
+                event["pulled"] = True
+                result["added"] += 1
+            candidate["tasks"] = kept
+            candidate["settings"]["last_rollover"] = today
+            if candidate == self.data and self.calendar_error is None:
+                return result
+            if not self._write_data(candidate):
+                self.calendar_error = self.last_error
+                return None
+            self.data = candidate
+            self.calendar_error = None
+        if result["reset"] or result["removed"] or result["added"]:
+            self._emit("tasks")
+        return result
 
     # ------------------------------------------------------------ 日历事项
     def add_event(self, date: str, text: str, kind: str = "temp"):
@@ -376,28 +392,6 @@ class Store:
         with self.lock:
             return [dict(e) for e in self.data["events"]
                     if not e.get("pulled") and e.get("date", "") <= today]
-
-    def pull_due_events(self, today: str | None = None) -> int:
-        """把到期（含过期没处理）的日历事项变成任务，返回新增条数。"""
-        today = today or today_str()
-        added = 0
-        with self.lock:
-            for event in self.data["events"]:
-                if event.get("pulled") or event.get("date", "") > today:
-                    continue
-                event["pulled"] = True
-                self.data["tasks"].append({
-                    "id": _new_id(),
-                    "text": event["text"],
-                    "done": False,
-                    "done_on": None,
-                    "kind": event.get("kind", "temp"),
-                    "created": time.time(),
-                })
-                added += 1
-        if added:
-            self._changed("tasks")
-        return added
 
     # ------------------------------------------------------------ monitor targets
     def add_target(self, kind: str, name: str, match: str) -> bool:
